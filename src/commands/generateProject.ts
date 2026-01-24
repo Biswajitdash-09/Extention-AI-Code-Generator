@@ -1,0 +1,182 @@
+import * as vscode from 'vscode';
+import { ProviderManager } from '../providers';
+import { FileSystemUtils } from '../utils';
+import { PROVIDER_INFO, ProviderType } from '../types';
+import { HistoryManager } from '../services/historyManager';
+import { HistoryTreeProvider } from '../views/historyView';
+import { AuthManager } from '../services/authManager';
+
+let historyManager: HistoryManager | undefined;
+let historyTreeProvider: HistoryTreeProvider | undefined;
+let authManager: AuthManager | undefined;
+
+export function setHistoryServices(manager: HistoryManager, provider: HistoryTreeProvider) {
+    historyManager = manager;
+    historyTreeProvider = provider;
+}
+
+export function setAuthManager(manager: AuthManager) {
+    authManager = manager;
+}
+
+
+/**
+ * Handle the "AI: Generate Project from Task" command
+ */
+export async function generateProjectCommand(): Promise<void> {
+    try {
+        // Get workspace root or ask user to select folder
+        const workspaceRoot = await FileSystemUtils.getWorkspaceRoot();
+
+        if (!workspaceRoot) {
+            vscode.window.showWarningMessage('No folder selected. Please select a folder to generate the project in.');
+            return;
+        }
+
+        // Check Authentication
+        if (!authManager?.isAuthenticated) {
+            const loginAction = 'Login / Sign Up';
+            const result = await vscode.window.showWarningMessage(
+                'Authentication required. Please login to generate projects.',
+                loginAction
+            );
+            if (result === loginAction) {
+                vscode.commands.executeCommand('ai-code-generator.login');
+            }
+            return;
+        }
+
+        // Get task description from user
+        const taskDescription = await vscode.window.showInputBox({
+            placeHolder: 'e.g., Create a React login page with form validation',
+            prompt: 'Describe the project you want to generate',
+            title: 'AI Code Generator',
+            ignoreFocusOut: true
+        });
+
+        if (!taskDescription) {
+            return; // User cancelled
+        }
+
+        // Get the configured provider
+        const provider = ProviderManager.getProvider();
+        const validation = provider.validate();
+
+        if (!validation.valid) {
+            const setupAction = 'Open Settings';
+            const result = await vscode.window.showErrorMessage(
+                validation.error || 'Provider configuration error',
+                setupAction
+            );
+
+            if (result === setupAction) {
+                vscode.commands.executeCommand('workbench.action.openSettings', 'aiCodeGenerator');
+            }
+            return;
+        }
+
+        // Show progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: `AI Code Generator (${provider.name})`,
+                cancellable: false
+            },
+            async (progress) => {
+                // Generate project structure via AI
+                progress.report({ message: 'Generating project structure...', increment: 0 });
+
+                const result = await provider.generateProject(taskDescription);
+
+                if (!result.success || !result.projectStructure) {
+                    vscode.window.showErrorMessage(`Generation failed: ${result.error}`);
+                    return;
+                }
+
+                // Create folders and files
+                progress.report({ message: 'Creating files...', increment: 50 });
+
+                const createResult = await FileSystemUtils.createProjectStructure(
+                    workspaceRoot,
+                    result.projectStructure,
+                    progress
+                );
+
+                if (!createResult.success) {
+                    vscode.window.showErrorMessage(`File creation failed: ${createResult.error}`);
+                    return;
+                }
+
+                // Open main file in editor
+                await FileSystemUtils.openFirstFile(workspaceRoot, result.projectStructure);
+
+                // Show success message
+                const description = result.projectStructure.description || 'Project generated';
+                vscode.window.showInformationMessage(
+                    `✅ ${description} (${createResult.filesCreated} files created)`
+                );
+
+                // Add to history
+                if (historyManager) {
+                    const providerConfig = vscode.workspace.getConfiguration('aiCodeGenerator');
+                    // Get model from config based on provider type
+                    let model = 'unknown';
+                    if (provider.name.includes('OpenAI')) model = providerConfig.get('openai.model') || 'gpt-4o-mini';
+                    else if (provider.name.includes('Gemini')) model = providerConfig.get('gemini.model') || 'gemini-1.5-flash';
+                    else if (provider.name.includes('Groq')) model = providerConfig.get('groq.model') || 'llama-3.3-70b';
+                    else if (provider.name.includes('Ollama')) model = providerConfig.get('ollama.model') || 'codellama';
+
+                    await historyManager.addEntry({
+                        prompt: taskDescription,
+                        provider: provider.name,
+                        model: model,
+                        targetFolder: workspaceRoot,
+                        projectName: result.projectStructure.projectName,
+                        fileCount: createResult.filesCreated
+                    });
+                    historyTreeProvider?.refresh();
+                }
+
+                // Log tokens used if available
+                if (result.tokensUsed) {
+                    console.log(`AI Code Generator: ${result.tokensUsed} tokens used`);
+                }
+            }
+        );
+
+    } catch (error) {
+        vscode.window.showErrorMessage(
+            `Error: ${error instanceof Error ? error.message : 'Unknown error occurred'}`
+        );
+    }
+}
+
+/**
+ * Handle the "AI: Select AI Model" command
+ */
+export async function selectModelCommand(): Promise<void> {
+    const selectedType = await ProviderManager.selectProvider();
+
+    if (selectedType) {
+        const config = vscode.workspace.getConfiguration('aiCodeGenerator');
+        await config.update('provider', selectedType, vscode.ConfigurationTarget.Global);
+
+        const info = PROVIDER_INFO[selectedType];
+        vscode.window.showInformationMessage(`Switched to ${info.name}`);
+
+        // Check if API key is needed and not set
+        if (info.requiresApiKey) {
+            const apiKey = config.get<string>(`${selectedType}.apiKey`);
+            if (!apiKey) {
+                const setKey = 'Set API Key';
+                const result = await vscode.window.showWarningMessage(
+                    `${info.name} requires an API key. Would you like to set it now?`,
+                    setKey
+                );
+                if (result === setKey) {
+                    vscode.commands.executeCommand('workbench.action.openSettings', `aiCodeGenerator.${selectedType}.apiKey`);
+                }
+            }
+        }
+    }
+}

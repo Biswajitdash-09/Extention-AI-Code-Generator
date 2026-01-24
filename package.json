@@ -1,0 +1,214 @@
+{
+  "name": "ai-code-generator",
+  "displayName": "AI Code Generator",
+  "description": "Generate project structures and code from natural language using AI (OpenAI, Gemini, Groq, Ollama)",
+  "version": "0.0.1",
+  "publisher": "your-publisher-name",
+  "icon": "images/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Machine Learning",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "ai",
+    "code generation",
+    "openai",
+    "gemini",
+    "ollama",
+    "groq",
+    "chatgpt"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": [
+      {
+        "id": "ai-code-generator",
+        "title": "AI Code Generator",
+        "icon": "images/icon.png"
+      }
+    ],
+    "views": {
+      "ai-code-generator": [
+        {
+          "id": "aiCodeGenerator.chatView",
+          "name": "AI Chat",
+          "type": "webview",
+          "icon": "images/icon.png"
+        },
+        {
+          "id": "aiCodeGenerator.history",
+          "name": "Project Generation History"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "ai-code-generator.refreshHistory",
+          "when": "view == aiCodeGenerator.history",
+          "group": "navigation"
+        },
+        {
+          "command": "ai-code-generator.clearHistory",
+          "when": "view == aiCodeGenerator.history"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "ai-code-generator.openHistoryItem",
+          "when": "view == aiCodeGenerator.history",
+          "group": "inline"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "ai-code-generator.generateProject",
+        "title": "AI: Generate Project from Task"
+      },
+      {
+        "command": "ai-code-generator.login",
+        "title": "AI: Login / Sign Up",
+        "icon": "$(account)"
+      },
+      {
+        "command": "ai-code-generator.selectModel",
+        "title": "AI: Select AI Model"
+      },
+      {
+        "command": "ai-code-generator.refreshHistory",
+        "title": "Refresh History",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ai-code-generator.clearHistory",
+        "title": "Clear History",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "ai-code-generator.openHistoryItem",
+        "title": "Open Folder",
+        "icon": "$(folder-opened)"
+      }
+    ],
+    "configuration": {
+      "title": "AI Code Generator",
+      "properties": {
+        "aiCodeGenerator.provider": {
+          "type": "string",
+          "default": "gemini",
+          "enum": [
+            "openai",
+            "gemini",
+            "groq",
+            "ollama"
+          ],
+          "enumDescriptions": [
+            "OpenAI (GPT-4o, GPT-4o-mini) - Paid",
+            "Google Gemini (gemini-1.5-flash) - Free tier available",
+            "Groq (llama-3.3-70b, mixtral) - Free tier available",
+            "Ollama (Local models) - Free, runs locally"
+          ],
+          "description": "Select the AI provider to use for code generation"
+        },
+        "aiCodeGenerator.openai.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "OpenAI API Key (get from platform.openai.com)"
+        },
+        "aiCodeGenerator.openai.model": {
+          "type": "string",
+          "default": "gpt-4o-mini",
+          "enum": [
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-4-turbo",
+            "gpt-3.5-turbo"
+          ],
+          "description": "OpenAI model to use"
+        },
+        "aiCodeGenerator.gemini.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Google Gemini API Key (get from aistudio.google.com)"
+        },
+        "aiCodeGenerator.gemini.model": {
+          "type": "string",
+          "default": "gemini-1.5-flash",
+          "enum": [
+            "gemini-2.0-flash-exp",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro"
+          ],
+          "description": "Gemini model to use"
+        },
+        "aiCodeGenerator.groq.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Groq API Key (get from console.groq.com)"
+        },
+        "aiCodeGenerator.groq.model": {
+          "type": "string",
+          "default": "llama-3.3-70b-versatile",
+          "enum": [
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "mixtral-8x7b-32768"
+          ],
+          "description": "Groq model to use"
+        },
+        "aiCodeGenerator.ollama.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "Ollama server base URL"
+        },
+        "aiCodeGenerator.ollama.model": {
+          "type": "string",
+          "default": "codellama",
+          "description": "Ollama model to use (e.g., codellama, deepseek-coder, llama3)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "webpack",
+    "watch": "webpack --watch",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.x",
+    "@typescript-eslint/parser": "^6.x",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^8.x",
+    "glob": "^13.0.0",
+    "mocha": "^11.7.5",
+    "ts-loader": "^9.x",
+    "typescript": "^5.x",
+    "webpack": "^5.x",
+    "webpack-cli": "^5.x"
+  },
+  "dependencies": {
+    "date-fns": "^4.1.0",
+    "dotenv": "^17.2.3",
+    "firebase": "^12.8.0",
+    "openai": "^4.x"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/ai-code-generator"
+  }
+}
