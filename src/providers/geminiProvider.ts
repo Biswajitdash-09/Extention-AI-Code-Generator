@@ -84,6 +84,73 @@ export class GeminiProvider extends BaseProvider {
         }
     }
 
+    async streamChat(messages: ChatMessage[], onDelta: (delta: string) => void): Promise<ProviderResult> {
+        const validation = this.validate();
+        if (!validation.valid) {
+            return { success: false, error: validation.error };
+        }
+
+        try {
+            const model = this.config.model || 'gemini-1.5-flash';
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${this.config.apiKey}`;
+
+            const contents = this.convertToGeminiFormat(messages);
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents,
+                    generationConfig: { temperature: 0.7, maxOutputTokens: 16000 }
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({})) as any;
+                return { success: false, error: `Gemini API error: ${errorData.error?.message || response.statusText}` };
+            }
+
+            const reader = response.body?.getReader();
+            if (!reader) return { success: false, error: 'Failed to get reader from response' };
+
+            let fullContent = '';
+            const decoder = new TextDecoder();
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.substring(6));
+                            const delta = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                            if (delta) {
+                                fullContent += delta;
+                                onDelta(delta);
+                            }
+                        } catch (e) {
+                            // Skip invalid JSON
+                        }
+                    }
+                }
+            }
+
+            const parsed = this.parseJsonResponse(fullContent);
+            if (!parsed.success) {
+                return { success: true, message: fullContent };
+            }
+
+            return { success: true, projectStructure: parsed.data };
+
+        } catch (error) {
+            return { success: false, error: `Gemini streaming failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
+        }
+    }
+
     /**
      * Convert OpenAI-style messages to Gemini format
      */

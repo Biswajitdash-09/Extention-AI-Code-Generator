@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { AuthManager } from '../services/authManager';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { app } from '../firebase/config';
+import { FirebaseService } from '../services/firebaseService';
 
 export class LoginPanel {
     public static currentPanel: LoginPanel | undefined;
@@ -58,11 +57,7 @@ export class LoginPanel {
 
     private async handleLogin(email: string, pass: string) {
         try {
-            const auth = getAuth(app);
-            const userCredential = await signInWithEmailAndPassword(auth, email, pass);
-            const token = await userCredential.user.getIdToken();
-
-            await this.authManager.login(token, email);
+            await this.authManager.login(email, pass);
             vscode.window.showInformationMessage(`Successfully logged in as ${email}`);
             this.dispose();
         } catch (error) {
@@ -72,11 +67,7 @@ export class LoginPanel {
 
     private async handleSignup(email: string, pass: string) {
         try {
-            const auth = getAuth(app);
-            const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
-            const token = await userCredential.user.getIdToken();
-
-            await this.authManager.login(token, email);
+            await this.authManager.signup(email, pass);
             vscode.window.showInformationMessage(`Account created! Logged in as ${email}`);
             this.dispose();
         } catch (error) {

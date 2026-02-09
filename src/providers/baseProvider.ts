@@ -5,10 +5,14 @@ import { ProviderConfig, ProviderResult, ChatMessage } from '../types';
  * All providers must implement this interface
  */
 export abstract class BaseProvider {
-    protected config: ProviderConfig;
+    protected _config: ProviderConfig;
 
     constructor(config: ProviderConfig) {
-        this.config = config;
+        this._config = config;
+    }
+
+    public get config(): ProviderConfig {
+        return this._config;
     }
 
     /**
@@ -25,6 +29,11 @@ export abstract class BaseProvider {
      * Send a chat completion request
      */
     abstract chat(messages: ChatMessage[]): Promise<ProviderResult>;
+
+    /**
+     * Send a streaming chat completion request
+     */
+    abstract streamChat(messages: ChatMessage[], onDelta: (delta: string) => void): Promise<ProviderResult>;
 
     /**
      * Generate project structure from a task description

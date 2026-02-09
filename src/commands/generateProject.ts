@@ -93,54 +93,18 @@ export async function generateProjectCommand(): Promise<void> {
                     return;
                 }
 
-                // Create folders and files
-                progress.report({ message: 'Creating files...', increment: 50 });
+                const providerConfig = vscode.workspace.getConfiguration('aiCodeGenerator');
+                let model = 'unknown';
+                if (provider.name.includes('OpenAI')) model = providerConfig.get('openai.model') || 'gpt-4o-mini';
+                else if (provider.name.includes('Gemini')) model = providerConfig.get('gemini.model') || 'gemini-1.5-flash';
+                else if (provider.name.includes('Groq')) model = providerConfig.get('groq.model') || 'llama-3.3-70b';
+                else if (provider.name.includes('Ollama')) model = providerConfig.get('ollama.model') || 'codellama';
 
-                const createResult = await FileSystemUtils.createProjectStructure(
-                    workspaceRoot,
-                    result.projectStructure,
-                    progress
-                );
-
-                if (!createResult.success) {
-                    vscode.window.showErrorMessage(`File creation failed: ${createResult.error}`);
-                    return;
-                }
-
-                // Open main file in editor
-                await FileSystemUtils.openFirstFile(workspaceRoot, result.projectStructure);
-
-                // Show success message
-                const description = result.projectStructure.description || 'Project generated';
-                vscode.window.showInformationMessage(
-                    `✅ ${description} (${createResult.filesCreated} files created)`
-                );
-
-                // Add to history
-                if (historyManager) {
-                    const providerConfig = vscode.workspace.getConfiguration('aiCodeGenerator');
-                    // Get model from config based on provider type
-                    let model = 'unknown';
-                    if (provider.name.includes('OpenAI')) model = providerConfig.get('openai.model') || 'gpt-4o-mini';
-                    else if (provider.name.includes('Gemini')) model = providerConfig.get('gemini.model') || 'gemini-1.5-flash';
-                    else if (provider.name.includes('Groq')) model = providerConfig.get('groq.model') || 'llama-3.3-70b';
-                    else if (provider.name.includes('Ollama')) model = providerConfig.get('ollama.model') || 'codellama';
-
-                    await historyManager.addEntry({
-                        prompt: taskDescription,
-                        provider: provider.name,
-                        model: model,
-                        targetFolder: workspaceRoot,
-                        projectName: result.projectStructure.projectName,
-                        fileCount: createResult.filesCreated
-                    });
-                    historyTreeProvider?.refresh();
-                }
-
-                // Log tokens used if available
-                if (result.tokensUsed) {
-                    console.log(`AI Code Generator: ${result.tokensUsed} tokens used`);
-                }
+                await applyProjectStructure(workspaceRoot, result.projectStructure, {
+                    prompt: taskDescription,
+                    provider: provider.name,
+                    model: model
+                }, progress);
             }
         );
 
@@ -148,6 +112,65 @@ export async function generateProjectCommand(): Promise<void> {
         vscode.window.showErrorMessage(
             `Error: ${error instanceof Error ? error.message : 'Unknown error occurred'}`
         );
+    }
+}
+
+/**
+ * Apply a project structure to the filesystem
+ */
+export async function applyProjectStructure(
+    workspaceRoot: string,
+    projectStructure: any,
+    metadata: { prompt: string; provider: string; model: string },
+    progress?: vscode.Progress<{ message?: string; increment?: number }>
+): Promise<void> {
+    try {
+        if (progress) progress.report({ message: 'Creating files...', increment: 50 });
+        else {
+            vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: "AI Code Generator",
+                cancellable: false
+            }, async (p) => {
+                p.report({ message: 'Creating files...' });
+                return await FileSystemUtils.createProjectStructure(workspaceRoot, projectStructure, p);
+            });
+        }
+
+        const createResult = await FileSystemUtils.createProjectStructure(
+            workspaceRoot,
+            projectStructure,
+            progress
+        );
+
+        if (!createResult.success) {
+            vscode.window.showErrorMessage(`File creation failed: ${createResult.error}`);
+            return;
+        }
+
+        // Open main file in editor
+        await FileSystemUtils.openFirstFile(workspaceRoot, projectStructure);
+
+        // Show success message
+        const description = projectStructure.description || 'Project generated';
+        vscode.window.showInformationMessage(
+            `✅ ${description} (${createResult.filesCreated} files created)`
+        );
+
+        // Add to history
+        if (historyManager) {
+            await historyManager.addEntry({
+                prompt: metadata.prompt,
+                provider: metadata.provider,
+                model: metadata.model,
+                targetFolder: workspaceRoot,
+                projectName: projectStructure.projectName,
+                fileCount: createResult.filesCreated
+            });
+            historyTreeProvider?.refresh();
+        }
+    } catch (error) {
+        vscode.window.showErrorMessage(`Failed to apply project: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 }
 

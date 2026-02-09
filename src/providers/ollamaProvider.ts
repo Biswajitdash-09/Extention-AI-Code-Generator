@@ -97,4 +97,69 @@ export class OllamaProvider extends BaseProvider {
             };
         }
     }
+
+    async streamChat(messages: ChatMessage[], onDelta: (delta: string) => void): Promise<ProviderResult> {
+        const baseUrl = this.config.baseUrl || 'http://localhost:11434';
+        const model = this.config.model || 'codellama';
+
+        try {
+            const response = await fetch(`${baseUrl}/api/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: model,
+                    messages: messages.map(m => ({
+                        role: m.role,
+                        content: m.content
+                    })),
+                    stream: true,
+                    options: { temperature: 0.7, num_predict: 16000 }
+                })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text().catch(() => '');
+                return { success: false, error: `Ollama error: ${errorText || response.statusText}` };
+            }
+
+            const reader = response.body?.getReader();
+            if (!reader) return { success: false, error: 'Failed to get reader from response' };
+
+            let fullContent = '';
+            const decoder = new TextDecoder();
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    try {
+                        const data = JSON.parse(line);
+                        const delta = data.message?.content;
+                        if (delta) {
+                            fullContent += delta;
+                            onDelta(delta);
+                        }
+                        if (data.done) break;
+                    } catch (e) {
+                        // Skip invalid JSON
+                    }
+                }
+            }
+
+            const parsed = this.parseJsonResponse(fullContent);
+            if (!parsed.success) {
+                return { success: true, message: fullContent };
+            }
+
+            return { success: true, projectStructure: parsed.data };
+
+        } catch (error) {
+            return { success: false, error: `Ollama streaming failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
+        }
+    }
 }

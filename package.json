@@ -3,7 +3,8 @@
   "displayName": "AI Code Generator",
   "description": "Generate project structures and code from natural language using AI (OpenAI, Gemini, Groq, Ollama)",
   "version": "0.0.1",
-  "publisher": "your-publisher-name",
+  "publisher": "amar-pradhan-biswajit-dash",
+  "author": "Amar Pradhan && Biswajit Dash",
   "icon": "images/icon.png",
   "engines": {
     "vscode": "^1.85.0"
@@ -25,13 +26,15 @@
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
-    "viewsContainers": [
-      {
-        "id": "ai-code-generator",
-        "title": "AI Code Generator",
-        "icon": "images/icon.png"
-      }
-    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ai-code-generator",
+          "title": "AI Code Generator",
+          "icon": "images/icon.png"
+        }
+      ]
+    },
     "views": {
       "ai-code-generator": [
         {
@@ -141,7 +144,6 @@
           "type": "string",
           "default": "gemini-1.5-flash",
           "enum": [
-            "gemini-2.0-flash-exp",
             "gemini-1.5-flash",
             "gemini-1.5-pro"
           ],
@@ -204,11 +206,11 @@
   "dependencies": {
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
-    "firebase": "^12.8.0",
+    "firebase": "^12.9.0",
     "openai": "^4.x"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/ai-code-generator"
+    "url": "https://github.com/AmarPradhanDash/ai-code-generator"
   }
 }
