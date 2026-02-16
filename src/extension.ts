@@ -10,7 +10,7 @@ import { refactorSelectionCommand, addDocumentationCommand, optimizeCodeCommand,
 import { GhostProvider } from './features/ghost/ghostProvider';
 import { createAIProviderAdapter } from './features/ghost/aiProviderAdapter';
 import { explainCodeContextCommand, fixCodeContextCommand, improveCodeContextCommand, addToContextCommand } from './commands/contextMenu';
-import { terminalAddToContextCommand, terminalFixCommandCommand, terminalExplainCommandCommand, generateTerminalCommandCommand } from './commands/terminalContext';
+import { terminalAddToContextCommand, terminalFixCommandCommand, terminalExplainCommandCommand } from './commands/terminalContext';
 import { generateCommitMessageCommand } from './commands/gitCommit';
 import { generateTerminalCommandCommand as genTermCmd } from './commands/terminalCommand';
 import { focusChatInputCommand, newChatCommand, acceptSuggestionCommand, rejectSuggestionCommand, acceptAllSuggestionsCommand, rejectAllSuggestionsCommand } from './commands/chatFocus';
