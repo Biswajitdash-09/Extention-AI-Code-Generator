@@ -3,6 +3,10 @@ import { ProviderManager } from '../providers';
 import { HistoryManager } from '../services/historyManager';
 import { applyProjectStructure } from '../commands/generateProject';
 import { FileSystemUtils } from '../utils';
+import { WorkspaceAnalyzer, WorkspaceContext } from '../services/workspaceAnalyzer';
+import { DeploymentService } from '../services/deploymentService';
+import * as path from 'path';
+import * as fs from 'fs';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'aiCodeGenerator.chatView';
@@ -10,6 +14,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private _currentProjectStructure: any | undefined;
   private _currentMetadata: any | undefined;
   private _messages: any[] = [];
+  private _workspaceContext: WorkspaceContext | null = null;
+  private _autoIncludeWorkspace: boolean = false;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -48,6 +54,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           this._messages = [];
           this._currentProjectStructure = undefined;
           this._currentMetadata = undefined;
+          this._workspaceContext = null;
+          break;
+        }
+        case 'deployProject': {
+          await this.handleDeployProject();
+          break;
+        }
+        case 'diffFile': {
+          await this.handleDiffFile(data.path, data.content);
           break;
         }
         case 'openHistory': {
@@ -92,6 +107,55 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private async handleDeployProject() {
+    const workspaceRoot = await FileSystemUtils.getWorkspaceRoot();
+    if (!workspaceRoot) {
+      vscode.window.showWarningMessage('Please select a folder to deploy.');
+      return;
+    }
+
+    const result = await DeploymentService.deploy(workspaceRoot);
+
+    if (result.success && result.url) {
+      vscode.window.showInformationMessage(`Deployed to ${result.platform}: ${result.url}`, 'Open URL').then(selection => {
+        if (selection === 'Open URL' && result.url) {
+          vscode.env.openExternal(vscode.Uri.parse(result.url));
+        }
+      });
+
+      if (this._view) {
+        this._view.webview.postMessage({
+          type: 'deploymentComplete',
+          platform: result.platform,
+          url: result.url
+        });
+      }
+    } else {
+      vscode.window.showErrorMessage(`Deployment failed: ${result.error}`);
+    }
+  }
+
+  private async handleDiffFile(filePath: string, newContent: string) {
+    const workspaceRoot = await FileSystemUtils.getWorkspaceRoot();
+    if (!workspaceRoot) return;
+
+    const fullPath = path.join(workspaceRoot, filePath);
+    if (fs.existsSync(fullPath)) {
+      const uri = vscode.Uri.file(fullPath);
+      const doc = await vscode.workspace.openTextDocument(uri);
+
+      // Create temp file for new content to show diff
+      const tempUri = uri.with({ scheme: 'untitled', path: filePath + '.new' });
+      const edit = new vscode.WorkspaceEdit();
+      edit.insert(tempUri, new vscode.Position(0, 0), newContent);
+      await vscode.workspace.applyEdit(edit);
+
+      await vscode.commands.executeCommand('vscode.diff', uri, tempUri, `Diff: ${filePath}`);
+    } else {
+      vscode.window.showInformationMessage('File does not exist on disk yet.');
+    }
+  }
+
   private async handleMessage(content: string) {
     if (!this._view) return;
 
@@ -99,13 +163,60 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       const provider = ProviderManager.getProvider();
       this._view.webview.postMessage({ type: 'setLoading', value: true });
 
-      // Add user message to local history
-      this._messages.push({ role: 'user', content });
+      // Check for @workspace mention or auto-include setting
+      const includeWorkspace = content.includes('@workspace') || this._autoIncludeWorkspace;
 
-      const result = await provider.chat(this._messages);
+      // Load workspace context if needed
+      if (includeWorkspace && !this._workspaceContext) {
+        this._workspaceContext = await WorkspaceAnalyzer.analyzeWorkspace(3, true);
+        if (this._workspaceContext) {
+          this._view.webview.postMessage({
+            type: 'showWorkspaceContext',
+            value: this._workspaceContext.summary
+          });
+        }
+      }
+
+      // Remove @workspace mention from content
+      const cleanedContent = content.replace(/@workspace/g, '').trim();
+
+      // Prepare messages with workspace context
+      const messagesToSend = [...this._messages];
+      messagesToSend.push({ role: 'user', content: cleanedContent });
+
+      // Prepend workspace context to the first user message if available
+      if (includeWorkspace && this._workspaceContext) {
+        const contextPrompt = WorkspaceAnalyzer.formatContextForPrompt(this._workspaceContext);
+        messagesToSend[messagesToSend.length - 1].content = `${contextPrompt}\n\n${cleanedContent}`;
+      }
+
+      // Add user message to local history (without context to keep it clean)
+      this._messages.push({ role: 'user', content: cleanedContent });
+
+      let fullAssistantContent = '';
+      this._view.webview.postMessage({ type: 'addMessage', role: 'assistant', content: '', isStreaming: true });
+
+      const result = await provider.streamChat(messagesToSend, (delta) => {
+        fullAssistantContent += delta;
+        if (this._view) {
+          this._view.webview.postMessage({ type: 'updateDelta', value: delta });
+        }
+      });
 
       if (result.success) {
         if (result.projectStructure) {
+          // Check for existing files to mark as modified
+          const workspaceRoot = await FileSystemUtils.getWorkspaceRoot();
+          if (workspaceRoot) {
+            for (const file of result.projectStructure.files) {
+              // Ensure status property exists
+              if (!file.status) {
+                const fullPath = path.join(workspaceRoot, file.path);
+                file.status = fs.existsSync(fullPath) ? 'modified' : 'new';
+              }
+            }
+          }
+
           this._currentProjectStructure = result.projectStructure;
 
           const providerConfig = vscode.workspace.getConfiguration('aiCodeGenerator');
@@ -116,7 +227,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           else if (provider.name.includes('Ollama')) model = providerConfig.get('ollama.model') || 'codellama';
 
           this._currentMetadata = {
-            prompt: content,
+            prompt: cleanedContent,
             provider: provider.name,
             model: model
           };
@@ -135,9 +246,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             value: result.projectStructure
           });
 
-        } else if (result.message) {
-          this._messages.push({ role: 'assistant', content: result.message });
-          this._view.webview.postMessage({ type: 'addMessage', role: 'assistant', content: result.message });
+        } else if (result.message || fullAssistantContent) {
+          const finalContent = result.message || fullAssistantContent;
+          this._messages.push({ role: 'assistant', content: finalContent });
+          this._view.webview.postMessage({ type: 'finishStreaming' });
         }
       } else {
         this._view.webview.postMessage({ type: 'addMessage', role: 'system', content: `Error: ${result.error}` });
@@ -387,8 +499,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             <div class="section-label">Files to be created</div>
             <div id="buildFileList" class="history-list"></div>
         </div>
-        <div style="margin-top: 20px;">
-            <button class="send-btn" id="applyBtn" style="width: 100%; padding: 10px;">Apply to Workspace</button>
+        <div style="margin-top: 20px; display: flex; gap: 8px;">
+            <button class="send-btn" id="applyBtn" style="flex: 1; padding: 10px;">Apply to Workspace</button>
+            <button class="send-btn" id="deployBtn" style="flex: 1; padding: 10px; background: var(--vscode-button-secondaryBackground);">🚀 Deploy</button>
         </div>
       </div>
 
@@ -420,6 +533,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const input = document.getElementById('input');
         const sendBtn = document.getElementById('sendBtn');
         const applyBtn = document.getElementById('applyBtn');
+        const deployBtn = document.getElementById('deployBtn');
         const landingPage = document.getElementById('landingPage');
         const chatMessages = document.getElementById('chatMessages');
         const buildView = document.getElementById('buildView');
@@ -498,6 +612,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             vscode.postMessage({ type: 'applyProject' });
         });
 
+        deployBtn.addEventListener('click', () => {
+            deployBtn.disabled = true;
+            deployBtn.textContent = 'Deploying...';
+            vscode.postMessage({ type: 'deployProject' });
+        });
+
         function resetChat() {
             chatMessages.innerHTML = '';
             chatMessages.style.display = 'none';
@@ -565,7 +685,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             structure.files.forEach(file => {
                 const div = document.createElement('div');
                 div.className = 'history-item';
-                div.style.cursor = 'default';
                 
                 const icon = document.createElement('div');
                 icon.className = 'history-icon';
@@ -574,9 +693,38 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 const text = document.createElement('div');
                 text.className = 'history-text';
                 text.textContent = file.path;
-                
+
                 div.appendChild(icon);
                 div.appendChild(text);
+
+                if (file.status === 'modified') {
+                    const badge = document.createElement('div');
+                    badge.textContent = 'MODIFIED';
+                    badge.style.fontSize = '9px';
+                    badge.style.padding = '2px 4px';
+                    badge.style.borderRadius = '3px';
+                    badge.style.background = '#d7ba7d'; // VS Code modification color-ish
+                    badge.style.color = '#1e1e1e';
+                    badge.style.marginLeft = '8px';
+                    div.appendChild(badge);
+
+                    div.style.cursor = 'pointer';
+                    div.title = 'Click to view diff';
+                    div.addEventListener('click', () => {
+                        vscode.postMessage({ type: 'diffFile', path: file.path, content: file.content });
+                    });
+                } else {
+                    const badge = document.createElement('div');
+                    badge.textContent = 'NEW';
+                    badge.style.fontSize = '9px';
+                    badge.style.padding = '2px 4px';
+                    badge.style.borderRadius = '3px';
+                    badge.style.background = '#4ec9b0'; // VS Code new file color-ish
+                    badge.style.color = '#1e1e1e';
+                    badge.style.marginLeft = '8px';
+                    div.appendChild(badge);
+                }
+                
                 buildFileList.appendChild(div);
             });
         }

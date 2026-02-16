@@ -6,6 +6,8 @@ export interface ProjectFile {
     path: string;
     /** Content of the file */
     content: string;
+    /** File status (new or modified) */
+    status?: 'new' | 'modified' | 'unchanged';
 }
 
 /**
