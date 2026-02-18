@@ -1,7 +1,7 @@
 {
   "name": "ai-code-generator",
-  "displayName": "AI Code Generator",
-  "description": "Generate project structures and code from natural language using AI (OpenAI, Gemini, Groq, Ollama)",
+  "displayName": "CodeForge AI",
+  "description": "CodeForge AI — The AI Code Generator for VS Code. Generate project structures and code from natural language using AI (OpenAI, Gemini, Groq, Ollama)",
   "version": "1.0.0",
   "publisher": "amar-pradhan-biswajit-dash",
   "author": "Amar Pradhan && Biswajit Dash",
@@ -21,24 +21,22 @@
   "keywords": [
     "ai",
     "code generation",
+    "codeforge",
     "openai",
     "gemini",
     "ollama",
     "groq",
     "chatgpt"
   ],
-  "activationEvents": [
-    "onView:aiCodeGenerator.chatView",
-    "onView:aiCodeGenerator.history"
-  ],
+  "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
         {
           "id": "ai-code-generator",
-          "title": "AI Code Generator",
-          "icon": "images/icon.png"
+          "title": "CodeForge AI",
+          "icon": "images/activity-bar-icon.svg"
         }
       ]
     },
@@ -312,15 +310,15 @@
     "submenus": [
       {
         "id": "ai-code-generator.contextMenu",
-        "label": "AI Code Generator"
+        "label": "CodeForge AI"
       },
       {
         "id": "ai-code-generator.terminalMenu",
-        "label": "AI Code Generator"
+        "label": "CodeForge AI"
       }
     ],
     "configuration": {
-      "title": "AI Code Generator",
+      "title": "CodeForge AI",
       "properties": {
         "aiCodeGenerator.provider": {
           "type": "string",

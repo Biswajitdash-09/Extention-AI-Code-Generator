@@ -74,7 +74,7 @@ export class ProviderManager {
 
         const selected = await vscode.window.showQuickPick(items, {
             placeHolder: 'Select an AI provider',
-            title: 'AI Code Generator - Select Provider'
+            title: 'CodeForge AI - Select Provider'
         });
 
         return selected?.type;

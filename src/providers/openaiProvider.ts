@@ -27,7 +27,7 @@ export class OpenAIProvider extends BaseProvider {
         if (!this.config.apiKey) {
             return {
                 valid: false,
-                error: 'OpenAI API key is required. Set it in Settings > AI Code Generator > OpenAI API Key'
+                error: 'OpenAI API key is required. Set it in Settings > CodeForge AI > OpenAI API Key'
             };
         }
         return { valid: true };

@@ -15,7 +15,7 @@ export class GeminiProvider extends BaseProvider {
         if (!this.config.apiKey) {
             return {
                 valid: false,
-                error: 'Gemini API key is required. Get a free key at aistudio.google.com and set it in Settings > AI Code Generator > Gemini API Key'
+                error: 'Gemini API key is required. Get a free key at aistudio.google.com and set it in Settings > CodeForge AI > Gemini API Key'
             };
         }
         return { valid: true };

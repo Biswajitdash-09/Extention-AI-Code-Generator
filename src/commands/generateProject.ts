@@ -50,7 +50,7 @@ export async function generateProjectCommand(): Promise<void> {
         const taskDescription = await vscode.window.showInputBox({
             placeHolder: 'e.g., Create a React login page with form validation',
             prompt: 'Describe the project you want to generate',
-            title: 'AI Code Generator',
+            title: 'CodeForge AI',
             ignoreFocusOut: true
         });
 
@@ -79,7 +79,7 @@ export async function generateProjectCommand(): Promise<void> {
         await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
-                title: `AI Code Generator (${provider.name})`,
+                title: `CodeForge AI (${provider.name})`,
                 cancellable: false
             },
             async (progress) => {
@@ -137,7 +137,7 @@ export async function applyProjectStructure(
         } else {
             createResult = await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
-                title: "AI Code Generator",
+                title: "CodeForge AI",
                 cancellable: false
             }, async (p) => {
                 p.report({ message: 'Creating files...' });

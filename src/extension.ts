@@ -23,7 +23,7 @@ import { UsageTracker } from './services/usageTracker';
  * Called when the extension is activated
  */
 export function activate(context: vscode.ExtensionContext) {
-    console.log('AI Code Generator extension is now active!');
+    console.log('CodeForge AI extension is now active!');
 
     // Initialize Services
     const historyManager = new HistoryManager(context);
@@ -124,7 +124,7 @@ export function activate(context: vscode.ExtensionContext) {
  * Show welcome message with setup instructions
  */
 async function showWelcomeMessage() {
-    const message = 'AI Code Generator installed! Configure your preferred AI provider to get started.';
+    const message = 'CodeForge AI installed! Configure your preferred AI provider to get started.';
     const configureAction = 'Configure';
 
     const result = await vscode.window.showInformationMessage(message, configureAction);
@@ -138,5 +138,5 @@ async function showWelcomeMessage() {
  * Called when the extension is deactivated
  */
 export function deactivate() {
-    console.log('AI Code Generator extension is now deactivated.');
+    console.log('CodeForge AI extension is now deactivated.');
 }

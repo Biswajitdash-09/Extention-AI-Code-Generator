@@ -1,4 +1,4 @@
-# AI Code Generator - VS Code Extension
+# CodeForge AI - VS Code Extension
 
 Generate complete project structures, modify existing code, and get AI-powered coding assistance — all from natural language. Supports multiple AI providers including OpenAI, Gemini, Groq, and local Ollama models.
 
@@ -83,8 +83,8 @@ Quick-start templates for common project types to speed up generation.
 ## 🚀 Quick Start
 
 1. **Install** the extension from the VS Code Marketplace
-2. **Set your API key**: Open Settings (`Ctrl+,`) → Search "AI Code Generator" → Enter your key
-3. **Start chatting**: Click the AI Code Generator icon in the sidebar Activity Bar
+2. **Set your API key**: Open Settings (`Ctrl+,`) → Search "CodeForge AI" → Enter your key
+3. **Start chatting**: Click the CodeForge AI icon in the sidebar Activity Bar
 4. **Generate a project**: Type a description like _"Create a React dashboard with charts and dark mode"_
 5. **Review & apply**: Inspect the generated files in the Build tab, then click Apply
 
@@ -150,7 +150,7 @@ Quick-start templates for common project types to speed up generation.
 ### Setting up API Keys
 
 1. Open VS Code Settings (`Ctrl+,`)
-2. Search for "AI Code Generator"
+2. Search for "CodeForge AI"
 3. Enter your API key for your preferred provider:
 
 | Provider | Get API Key                                        | Free Tier       |
@@ -192,7 +192,7 @@ Quick-start templates for common project types to speed up generation.
 
 ### "API key is required"
 
-- Go to Settings > AI Code Generator and enter your API key for the selected provider
+- Go to Settings > CodeForge AI and enter your API key for the selected provider
 
 ### "Ollama is not running"
 

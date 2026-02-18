@@ -15,7 +15,7 @@ export class GroqProvider extends BaseProvider {
         if (!this.config.apiKey) {
             return {
                 valid: false,
-                error: 'Groq API key is required. Get a free key at console.groq.com and set it in Settings > AI Code Generator > Groq API Key'
+                error: 'Groq API key is required. Get a free key at console.groq.com and set it in Settings > CodeForge AI > Groq API Key'
             };
         }
         return { valid: true };

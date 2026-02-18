@@ -97,7 +97,7 @@ JSON OUTPUT FORMAT (follow exactly):
         const isDebug = mode === 'debug';
         
         if (isDebug) {
-            return `You are an expert AI debugging assistant for the "AI Code Generator" VS Code extension.
+            return `You are an expert AI debugging assistant for the "CodeForge AI" VS Code extension.
 You are in **DEBUG** mode.
 
 YOUR PRIMARY GOAL: Fix errors. You MUST return a JSON project structure with the corrected file(s).
@@ -125,7 +125,7 @@ If context about existing files is provided (under "# Workspace Context" or "# A
         }
         
         if (isAgent) {
-            return `You are an expert AI code generator for the "AI Code Generator" VS Code extension.
+            return `You are an expert AI code generator for the "CodeForge AI" VS Code extension.
 You are in **AGENT** mode — your job is to BUILD things.
 
 CRITICAL RULES:
@@ -167,7 +167,7 @@ If workspace/file context is provided, use it to understand the existing codebas
         }
         
         // Planning mode
-        return `You are a helpful AI assistant for the "AI Code Generator" VS Code extension.
+        return `You are a helpful AI assistant for the "CodeForge AI" VS Code extension.
 You are in **PLANNING** mode.
 
 PLANNING MODE RULES:

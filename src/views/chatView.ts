@@ -189,7 +189,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
   private handleRunCommand(command: string) {
-    const terminal = vscode.window.terminals.find(t => t.name === 'AI Code Generator') || vscode.window.createTerminal('AI Code Generator');
+    const terminal = vscode.window.terminals.find(t => t.name === 'CodeForge AI') || vscode.window.createTerminal('CodeForge AI');
     terminal.show();
     terminal.sendText(command);
     
@@ -1070,7 +1070,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       </div>
 
       <div class="content" id="landingPage">
-        <div class="landing-title">AI Code Generator</div>
+        <div class="landing-title">CodeForge AI</div>
         <div class="landing-subtitle">What would you like to build today?</div>
 
         <div class="suggestion-grid">
