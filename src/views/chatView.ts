@@ -343,11 +343,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       });
 
       if (result.success) {
-        if (result.projectStructure) {
+        // If provider didn't extract a projectStructure, try fallback extraction from streamed content
+        let projectStructure = result.projectStructure;
+        if (!projectStructure && fullAssistantContent) {
+          const extracted = this.tryExtractProjectStructure(fullAssistantContent);
+          if (extracted) {
+            projectStructure = extracted;
+          }
+        }
+
+        if (projectStructure) {
           // Check for existing files to mark as modified
           const workspaceRoot = await FileSystemUtils.getWorkspaceRoot();
           if (workspaceRoot) {
-            for (const file of result.projectStructure.files) {
+            for (const file of projectStructure.files) {
               // Ensure status property exists
               if (!file.status) {
                 const fullPath = path.join(workspaceRoot, file.path);
@@ -356,7 +365,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
           }
 
-          this._currentProjectStructure = result.projectStructure;
+          this._currentProjectStructure = projectStructure;
 
           const providerConfig = vscode.workspace.getConfiguration('aiCodeGenerator');
           let model = 'unknown';
@@ -371,7 +380,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             model: model
           };
 
-          const assistantMessage = `Project generated: ${result.projectStructure.projectName}. Review in the Build tab.`;
+          const assistantMessage = `Project generated: ${projectStructure.projectName}. Review in the Build tab.`;
           this._messages.push({ role: 'assistant', content: assistantMessage });
 
           this._view.webview.postMessage({
@@ -382,13 +391,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
           this._view.webview.postMessage({
             type: 'showBuild',
-            value: result.projectStructure
+            value: projectStructure
           });
 
-          if (result.projectStructure.suggestedCommands && result.projectStructure.suggestedCommands.length > 0) {
+          if (projectStructure.suggestedCommands && projectStructure.suggestedCommands.length > 0) {
             this._view.webview.postMessage({
               type: 'showCommands',
-              value: result.projectStructure.suggestedCommands
+              value: projectStructure.suggestedCommands
             });
           }
 
@@ -462,6 +471,58 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     return results;
+  }
+
+  /**
+   * Fallback: try to extract a project structure JSON from AI response text.
+   * This catches cases where the AI wraps valid JSON in explanatory markdown.
+   */
+  private tryExtractProjectStructure(content: string): any | null {
+    try {
+      let cleaned = content.trim();
+
+      // Strategy 1: Extract from ```json code block
+      const jsonBlockMatch = cleaned.match(/```json\s*\n?([\s\S]*?)```/);
+      if (jsonBlockMatch) {
+        cleaned = jsonBlockMatch[1].trim();
+      } else {
+        // Strategy 2: Find the outermost JSON object in the response
+        const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          cleaned = jsonMatch[0];
+        } else {
+          return null;
+        }
+      }
+
+      const parsed = JSON.parse(cleaned);
+
+      // Validate it's actually a project structure
+      if (!parsed.files || !Array.isArray(parsed.files) || parsed.files.length === 0) {
+        return null;
+      }
+
+      // Validate each file has path and content
+      for (const file of parsed.files) {
+        if (!file.path || typeof file.content !== 'string') {
+          return null;
+        }
+      }
+
+      // Ensure folders array exists
+      if (!parsed.folders) {
+        parsed.folders = [];
+      }
+
+      // Ensure projectName exists
+      if (!parsed.projectName) {
+        parsed.projectName = 'generated-project';
+      }
+
+      return parsed;
+    } catch (e) {
+      return null;
+    }
   }
 
   private _getHtmlForWebview(webview: vscode.Webview): string {
