@@ -2,7 +2,7 @@
   "name": "ai-code-generator",
   "displayName": "AI Code Generator",
   "description": "Generate project structures and code from natural language using AI (OpenAI, Gemini, Groq, Ollama)",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "publisher": "amar-pradhan-biswajit-dash",
   "author": "Amar Pradhan && Biswajit Dash",
   "icon": "images/icon.png",
@@ -10,10 +10,14 @@
     "vscode": "^1.85.0"
   },
   "categories": [
-    "Other",
     "Machine Learning",
-    "Programming Languages"
+    "Programming Languages",
+    "Other"
   ],
+  "galleryBanner": {
+    "color": "#0b1728",
+    "theme": "dark"
+  },
   "keywords": [
     "ai",
     "code generation",
@@ -23,7 +27,10 @@
     "groq",
     "chatgpt"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onView:aiCodeGenerator.chatView",
+    "onView:aiCodeGenerator.history"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -355,10 +362,10 @@
         },
         "aiCodeGenerator.gemini.model": {
           "type": "string",
-          "default": "gemini-2.0-flash",
+          "default": "gemini-1.5-flash",
           "enum": [
-            "gemini-2.0-flash",
             "gemini-1.5-flash",
+            "gemini-2.0-flash",
             "gemini-1.5-pro"
           ],
           "description": "Gemini model to use"
@@ -386,7 +393,7 @@
         "aiCodeGenerator.ollama.model": {
           "type": "string",
           "default": "codellama",
-          "description": "Ollama base URL (default: http://localhost:11434)"
+          "description": "Ollama model to use (e.g., codellama, deepseek-coder)"
         },
         "aiCodeGenerator.enableCodeActions": {
           "type": "boolean",

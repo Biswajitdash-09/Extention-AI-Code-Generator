@@ -36,6 +36,11 @@ export abstract class BaseProvider {
     abstract streamChat(messages: ChatMessage[], onDelta: (delta: string) => void): Promise<ProviderResult>;
 
     /**
+     * Generate embeddings for a piece of text
+     */
+    abstract getEmbeddings(text: string): Promise<number[]>;
+
+    /**
      * Generate project structure from a task description
      */
     async generateProject(taskDescription: string): Promise<ProviderResult> {
@@ -53,7 +58,7 @@ export abstract class BaseProvider {
     /**
      * System prompt for code generation
      */
-    protected getSystemPrompt(): string {
+    public getSystemPrompt(): string {
         return `You are an expert software engineer and code generator. Your task is to generate complete, production-ready project structures based on user descriptions.
 
 CRITICAL RULES:
@@ -79,14 +84,69 @@ JSON OUTPUT FORMAT (follow exactly):
       "path": "src/index.js",
       "content": "// actual code here"
     }
-  ]
+  ],
+  "suggestedCommands": ["npm install", "npm start"]
 }`;
+    }
+
+    /**
+     * System prompt for chat-based interactions
+     */
+    public getChatSystemPrompt(mode: string = 'agent'): string {
+        const isAgent = mode === 'agent';
+        const isDebug = mode === 'debug';
+        
+        return `You are a helpful AI assistant for the "AI Code Generator" extension.
+You are currently in **${mode.toUpperCase()}** mode.
+
+${isDebug ? 
+`DEBUG MODE CAPABILITIES:
+1. You are an expert debugger. Your goal is to fix errors provided by the user or terminal.
+2. Carefully analyze STACK TRACES and ERROR MESSAGES.
+3. Identify the EXACT file and line number causing the issue.
+4. Propose the SMALLEST possible fix to resolve the error.
+5. ALWAYS return a JSON project structure with the fixed file content so the user can apply it.` :
+isAgent ? 
+`AGENT MODE CAPABILITIES:
+1. You can answer questions AND generate/modify project files.
+2. If the user asks to create, generate, add, or modify files/projects (or provides a screenshot):
+   - You MUST include a valid JSON project structure in your response.
+   - For existing files, return the FULL updated content.` :
+`PLANNING MODE CAPABILITIES:
+1. You are here to DISCUSS and PLAN. 
+2. You MUST NOT include the JSON project structure for automatic file changes.
+3. If you suggest code, provide it in regular markdown code blocks for the user to read.
+4. Focus on explaining concepts, architectural decisions, and answering technical questions.`}
+
+VISION/IMAGE CAPABILITIES:
+1. If the user provides an image/screenshot, your primary task is to translate it into code.
+2. Generate modern, responsive UI using HTML, Tailwind CSS, or the user's preferred framework.
+3. Be precise with colors, spacing, and layout to match the provided image.
+
+IF context about existing files is provided (under "# Workspace Context" or "# Active File"):
+1. Use this context to understand the current codebase.
+2. When asked to modify or fix a file (in Agent or Debug mode), you MUST return the FULL updated content of the file.
+3. Maintain existing coding styles, indentation, and patterns.
+
+${(isAgent || isDebug) ? `
+FOR FILE UPDATES (${mode.charAt(0).toUpperCase() + mode.slice(1)} Mode):
+1. Include a valid JSON structure in a markdown code block tagged with 'json'.
+2. Structure: 
+{
+  "projectName": "project-name",
+  "description": "Brief description of the fix/change",
+  "folders": ["src"],
+  "files": [{"path": "src/file.js", "content": "..."}],
+  "suggestedCommands": ["npm start"]
+}` : ''}
+
+Otherwise, respond conversationally.`;
     }
 
     /**
      * User prompt template
      */
-    protected getUserPrompt(taskDescription: string): string {
+    public getUserPrompt(taskDescription: string): string {
         return `Generate a complete project for the following task:
 
 ${taskDescription}

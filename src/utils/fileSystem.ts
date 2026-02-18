@@ -18,33 +18,49 @@ export class FileSystemUtils {
     ): Promise<{ success: boolean; filesCreated: number; error?: string }> {
 
         let filesCreated = 0;
-        const totalItems = structure.folders.length + structure.files.length;
+        const totalItems = (structure.folders?.length || 0) + (structure.files?.length || 0);
         const incrementPerItem = totalItems > 0 ? 100 / totalItems : 0;
 
         try {
+            const rootUri = vscode.Uri.file(path.normalize(workspaceRoot));
+
             // Create folders first
-            for (const folder of structure.folders) {
-                const fullPath = path.join(workspaceRoot, folder);
+            if (structure.folders) {
+                for (const folder of structure.folders) {
+                    const normalizedFolder = path.normalize(folder);
+                    const folderUri = vscode.Uri.joinPath(rootUri, normalizedFolder);
 
-                progress?.report({
-                    message: `Creating folder: ${folder}`,
-                    increment: incrementPerItem
-                });
+                    progress?.report({
+                        message: `Creating folder: ${normalizedFolder}`,
+                        increment: incrementPerItem
+                    });
 
-                if (!fs.existsSync(fullPath)) {
-                    fs.mkdirSync(fullPath, { recursive: true });
+                    try {
+                        await vscode.workspace.fs.createDirectory(folderUri);
+                    } catch (e) {
+                        // Directory creation might fail if it already exists or on some systems
+                        // We continue as createFile will also attempt to create parent dirs
+                        console.warn(`Folder creation warning for ${normalizedFolder}:`, e);
+                    }
                 }
             }
 
             // Create files
-            for (const file of structure.files) {
-                progress?.report({
-                    message: `Creating file: ${file.path}`,
-                    increment: incrementPerItem
-                });
+            if (structure.files) {
+                for (const file of structure.files) {
+                    const normalizedPath = path.normalize(file.path);
+                    progress?.report({
+                        message: `Creating file: ${normalizedPath}`,
+                        increment: incrementPerItem
+                    });
 
-                await this.createFile(workspaceRoot, file);
-                filesCreated++;
+                    try {
+                        await this.createFile(workspaceRoot, { ...file, path: normalizedPath });
+                        filesCreated++;
+                    } catch (e) {
+                        throw new Error(`Failed to create file "${normalizedPath}": ${e instanceof Error ? e.message : 'Unknown error'}`);
+                    }
+                }
             }
 
             return { success: true, filesCreated };
@@ -52,25 +68,26 @@ export class FileSystemUtils {
             return {
                 success: false,
                 filesCreated,
-                error: `Failed to create project structure: ${error instanceof Error ? error.message : 'Unknown error'}`
+                error: error instanceof Error ? error.message : 'Unknown error'
             };
         }
     }
 
     /**
-     * Create a single file with content
+     * Create a single file with content using VS Code FS API
      */
     static async createFile(workspaceRoot: string, file: ProjectFile): Promise<void> {
-        const fullPath = path.join(workspaceRoot, file.path);
-        const dir = path.dirname(fullPath);
+        const rootUri = vscode.Uri.file(path.normalize(workspaceRoot));
+        const fileUri = vscode.Uri.joinPath(rootUri, file.path);
+        
+        // Ensure parent directory exists (though createDirectory is recursive in VS Code)
+        const parentUri = vscode.Uri.file(path.dirname(fileUri.fsPath));
+        await vscode.workspace.fs.createDirectory(parentUri);
 
-        // Ensure parent directory exists
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
-
-        // Write file content
-        fs.writeFileSync(fullPath, file.content, 'utf-8');
+        // Write file content using Uint8Array
+        const encoder = new TextEncoder();
+        const data = encoder.encode(file.content);
+        await vscode.workspace.fs.writeFile(fileUri, data);
     }
 
     /**
@@ -117,7 +134,7 @@ export class FileSystemUtils {
      * Open the first created file in the editor
      */
     static async openFirstFile(workspaceRoot: string, structure: ProjectStructure): Promise<void> {
-        if (structure.files.length > 0) {
+        if (structure.files && structure.files.length > 0) {
             // Prefer opening main/index files first
             const priorityFiles = [
                 'index.tsx', 'index.ts', 'index.js', 'index.jsx',
@@ -138,8 +155,9 @@ export class FileSystemUtils {
                 }
             }
 
-            const filePath = path.join(workspaceRoot, fileToOpen.path);
-            const document = await vscode.workspace.openTextDocument(filePath);
+            const rootUri = vscode.Uri.file(path.normalize(workspaceRoot));
+            const fileUri = vscode.Uri.joinPath(rootUri, fileToOpen.path);
+            const document = await vscode.workspace.openTextDocument(fileUri);
             await vscode.window.showTextDocument(document);
         }
     }

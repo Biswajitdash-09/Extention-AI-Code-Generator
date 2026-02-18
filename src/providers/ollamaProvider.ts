@@ -31,6 +31,10 @@ export class OllamaProvider extends BaseProvider {
                 };
             }
 
+            // Set timeout using AbortController
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 second timeout
+
             const response = await fetch(`${baseUrl}/api/chat`, {
                 method: 'POST',
                 headers: {
@@ -47,8 +51,11 @@ export class OllamaProvider extends BaseProvider {
                         temperature: 0.7,
                         num_predict: 16000
                     }
-                })
+                }),
+                signal: controller.signal
             });
+
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 const errorText = await response.text().catch(() => '');
@@ -103,6 +110,10 @@ export class OllamaProvider extends BaseProvider {
         const model = this.config.model || 'codellama';
 
         try {
+            // Set timeout using AbortController
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 second timeout
+
             const response = await fetch(`${baseUrl}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -114,8 +125,11 @@ export class OllamaProvider extends BaseProvider {
                     })),
                     stream: true,
                     options: { temperature: 0.7, num_predict: 16000 }
-                })
+                }),
+                signal: controller.signal
             });
+
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 const errorText = await response.text().catch(() => '');
@@ -161,5 +175,62 @@ export class OllamaProvider extends BaseProvider {
         } catch (error) {
             return { success: false, error: `Ollama streaming failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
         }
+    }
+
+    async getEmbeddings(text: string): Promise<number[]> {
+        const baseUrl = this.config.baseUrl || 'http://localhost:11434';
+        const model = this.config.model || 'codellama';
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+            const response = await fetch(`${baseUrl}/api/embeddings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model,
+                    prompt: text.replace(/\n/g, ' ')
+                }),
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (response.ok) {
+                const data = await response.json() as any;
+                if (data && Array.isArray(data.embedding)) {
+                    return data.embedding as number[];
+                }
+            }
+        } catch {
+            // Fall through to local embedding fallback
+        }
+
+        return this.simpleHashEmbedding(text);
+    }
+
+    private simpleHashEmbedding(text: string, dims: number = 256): number[] {
+        const vec = new Array<number>(dims).fill(0);
+        const tokens = text
+            .toLowerCase()
+            .replace(/[^a-z0-9_\s]/g, ' ')
+            .split(/\s+/)
+            .filter(Boolean);
+
+        for (const tok of tokens) {
+            let h = 2166136261;
+            for (let i = 0; i < tok.length; i++) {
+                h ^= tok.charCodeAt(i);
+                h = Math.imul(h, 16777619);
+            }
+            const idx = Math.abs(h) % dims;
+            vec[idx] += 1;
+        }
+
+        let norm = 0;
+        for (const v of vec) norm += v * v;
+        norm = Math.sqrt(norm) || 1;
+        return vec.map(v => v / norm);
     }
 }

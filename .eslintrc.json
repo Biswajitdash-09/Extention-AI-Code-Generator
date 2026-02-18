@@ -1,0 +1,29 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "plugins": ["@typescript-eslint"],
+  "extends": ["eslint:recommended"],
+  "env": {
+    "node": true,
+    "es2022": true
+  },
+  "globals": {
+    "suite": "readonly",
+    "test": "readonly",
+    "setup": "readonly",
+    "teardown": "readonly"
+  },
+  "ignorePatterns": ["dist/**", "out/**", "node_modules/**"],
+  "rules": {
+    "no-undef": "off",
+    "no-unused-vars": "off",
+    "prefer-const": "off",
+    "no-constant-condition": "off",
+    "no-async-promise-executor": "off",
+    "no-useless-escape": "off",
+    "@typescript-eslint/no-unused-vars": "off",
+    "@typescript-eslint/no-explicit-any": "off",
+    "@typescript-eslint/no-var-requires": "off"
+  }
+}
+

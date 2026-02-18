@@ -28,11 +28,26 @@ export class GeminiProvider extends BaseProvider {
         }
 
         try {
-            const model = this.config.model || 'gemini-2.0-flash';
+            const model = this.config.model || 'gemini-1.5-flash';
+            
+            // WARNING: Google Gemini REST API requires the API key in the URL as a query parameter.
+            // This is their official authentication method - there is no header-based alternative.
+            //
+            // PRODUCTION SECURITY CONCERN: The API key in URLs can be exposed in logs, browser history,
+            // and network traces. For production deployments, implement a proxy server that:
+            // 1. Stores and validates API keys securely
+            // 2. Handles requests to the Gemini API on behalf of the extension
+            // 3. Never exposes API keys to client-side code
+            //
+            // Current implementation is acceptable for development but NOT production-ready.
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.config.apiKey}`;
 
             // Convert messages to Gemini format
             const contents = this.convertToGeminiFormat(messages);
+
+            // Set timeout using AbortController
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 second timeout
 
             const response = await fetch(url, {
                 method: 'POST',
@@ -45,8 +60,11 @@ export class GeminiProvider extends BaseProvider {
                         temperature: 0.7,
                         maxOutputTokens: 16000
                     }
-                })
+                }),
+                signal: controller.signal
             });
+
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({})) as Record<string, any>;
@@ -92,18 +110,33 @@ export class GeminiProvider extends BaseProvider {
 
         try {
             const model = this.config.model || 'gemini-2.0-flash';
+            
+            // WARNING: Google Gemini REST API requires the API key in the URL as a query parameter.
+            // This is their official authentication method - there is no header-based alternative.
+            //
+            // PRODUCTION SECURITY CONCERN: The API key in URLs can be exposed in logs, browser history,
+            // and network traces. For production deployments, implement a proxy server.
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${this.config.apiKey}`;
 
             const contents = this.convertToGeminiFormat(messages);
 
+            // Set timeout using AbortController
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 second timeout
+
             const response = await fetch(url, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json'
+                },
                 body: JSON.stringify({
                     contents,
                     generationConfig: { temperature: 0.7, maxOutputTokens: 16000 }
-                })
+                }),
+                signal: controller.signal
             });
+
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({})) as any;
@@ -164,9 +197,20 @@ export class GeminiProvider extends BaseProvider {
             if (msg.role === 'system') {
                 systemContent = msg.content + '\n\n';
             } else if (msg.role === 'user') {
+                const parts: any[] = [{ text: systemContent + msg.content }];
+                
+                if (msg.image) {
+                    parts.push({
+                        inlineData: {
+                            mimeType: 'image/jpeg',
+                            data: msg.image
+                        }
+                    });
+                }
+
                 contents.push({
                     role: 'user',
-                    parts: [{ text: systemContent + msg.content }]
+                    parts
                 });
                 systemContent = ''; // Only prepend once
             } else if (msg.role === 'assistant') {
@@ -178,5 +222,38 @@ export class GeminiProvider extends BaseProvider {
         }
 
         return contents;
+    }
+
+    async getEmbeddings(text: string): Promise<number[]> {
+        const model = 'text-embedding-004';
+        
+        // WARNING: Google Gemini REST API requires the API key in the URL as a query parameter.
+        // For production deployments, implement a proxy server.
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${this.config.apiKey}`;
+
+        // Set timeout using AbortController
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 second timeout
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: `models/${model}`,
+                content: { parts: [{ text }] }
+            }),
+            signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            throw new Error(`Gemini embedding failed: ${response.statusText}`);
+        }
+
+        const data = await response.json() as any;
+        return data.embedding.values;
     }
 }

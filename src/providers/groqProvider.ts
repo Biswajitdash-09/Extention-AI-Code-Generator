@@ -28,6 +28,10 @@ export class GroqProvider extends BaseProvider {
         }
 
         try {
+            // Set timeout using AbortController
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 second timeout
+
             const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                 method: 'POST',
                 headers: {
@@ -42,8 +46,11 @@ export class GroqProvider extends BaseProvider {
                     })),
                     temperature: 0.7,
                     max_tokens: 16000
-                })
+                }),
+                signal: controller.signal
             });
+
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({})) as Record<string, any>;
@@ -88,6 +95,10 @@ export class GroqProvider extends BaseProvider {
         }
 
         try {
+            // Set timeout using AbortController
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 second timeout
+
             const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                 method: 'POST',
                 headers: {
@@ -103,8 +114,11 @@ export class GroqProvider extends BaseProvider {
                     temperature: 0.7,
                     max_tokens: 16000,
                     stream: true
-                })
+                }),
+                signal: controller.signal
             });
+
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({})) as any;
@@ -151,5 +165,36 @@ export class GroqProvider extends BaseProvider {
         } catch (error) {
             return { success: false, error: `Groq streaming failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
         }
+    }
+
+    async getEmbeddings(text: string): Promise<number[]> {
+        // Groq does not currently provide a stable embeddings API for this extension.
+        // Use a deterministic local fallback embedding so semantic indexing still functions.
+        return this.simpleHashEmbedding(text);
+    }
+
+    private simpleHashEmbedding(text: string, dims: number = 256): number[] {
+        const vec = new Array<number>(dims).fill(0);
+        const tokens = text
+            .toLowerCase()
+            .replace(/[^a-z0-9_\s]/g, ' ')
+            .split(/\s+/)
+            .filter(Boolean);
+
+        for (const tok of tokens) {
+            let h = 2166136261;
+            for (let i = 0; i < tok.length; i++) {
+                h ^= tok.charCodeAt(i);
+                h = Math.imul(h, 16777619);
+            }
+            const idx = Math.abs(h) % dims;
+            vec[idx] += 1;
+        }
+
+        // L2 normalize
+        let norm = 0;
+        for (const v of vec) norm += v * v;
+        norm = Math.sqrt(norm) || 1;
+        return vec.map(v => v / norm);
     }
 }

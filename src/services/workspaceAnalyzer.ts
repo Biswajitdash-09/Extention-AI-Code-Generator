@@ -45,7 +45,7 @@ export class WorkspaceAnalyzer {
         let tokenEstimate = 0;
 
         if (includeFileContent) {
-            const relevantFiles = this.findRelevantFiles(rootPath, maxDepth);
+            const relevantFiles = await this.findRelevantFiles(rootPath, maxDepth);
             for (const filePath of relevantFiles) {
                 if (tokenEstimate >= this.MAX_TOKENS) break;
 
@@ -71,7 +71,7 @@ export class WorkspaceAnalyzer {
     }
 
     /**
-     * Build a file tree structure
+     * Build a file tree structure using async VS Code workspace API to avoid blocking
      */
     private static async buildFileTree(dirPath: string, maxDepth: number, currentDepth: number = 0): Promise<FileNode[]> {
         if (currentDepth >= maxDepth) return [];
@@ -79,21 +79,23 @@ export class WorkspaceAnalyzer {
         const nodes: FileNode[] = [];
 
         try {
-            const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+            const dirUri = vscode.Uri.file(dirPath);
+            const entries = await vscode.workspace.fs.readDirectory(dirUri);
 
-            for (const entry of entries) {
-                if (this.IGNORED_DIRS.includes(entry.name) || this.IGNORED_FILES.includes(entry.name)) {
+            for (const [name, type] of entries) {
+                if (this.IGNORED_DIRS.includes(name) || this.IGNORED_FILES.includes(name)) {
                     continue;
                 }
 
-                const fullPath = path.join(dirPath, entry.name);
+                const fullPath = path.join(dirPath, name);
+                const isDirectory = type === vscode.FileType.Directory;
                 const node: FileNode = {
-                    name: entry.name,
-                    type: entry.isDirectory() ? 'directory' : 'file',
+                    name,
+                    type: isDirectory ? 'directory' : 'file',
                     path: fullPath
                 };
 
-                if (entry.isDirectory()) {
+                if (isDirectory) {
                     node.children = await this.buildFileTree(fullPath, maxDepth, currentDepth + 1);
                 }
 
@@ -107,31 +109,32 @@ export class WorkspaceAnalyzer {
     }
 
     /**
-     * Find relevant files to include in context
+     * Find relevant files to include in context using async operations to avoid blocking
      */
-    private static findRelevantFiles(rootPath: string, maxDepth: number): string[] {
+    private static async findRelevantFiles(rootPath: string, maxDepth: number): Promise<string[]> {
         const files: string[] = [];
         const priorityExtensions = ['.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.go', '.rs', '.cpp', '.c'];
 
-        const traverse = (dirPath: string, depth: number) => {
+        const traverse = async (dirPath: string, depth: number) => {
             if (depth >= maxDepth) return;
 
             try {
-                const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+                const dirUri = vscode.Uri.file(dirPath);
+                const entries = await vscode.workspace.fs.readDirectory(dirUri);
 
-                for (const entry of entries) {
-                    if (this.IGNORED_DIRS.includes(entry.name) || this.IGNORED_FILES.includes(entry.name)) {
+                for (const [name, type] of entries) {
+                    if (this.IGNORED_DIRS.includes(name) || this.IGNORED_FILES.includes(name)) {
                         continue;
                     }
 
-                    const fullPath = path.join(dirPath, entry.name);
+                    const fullPath = path.join(dirPath, name);
 
-                    if (entry.isDirectory()) {
-                        traverse(fullPath, depth + 1);
-                    } else if (entry.isFile()) {
-                        const ext = path.extname(entry.name);
+                    if (type === vscode.FileType.Directory) {
+                        await traverse(fullPath, depth + 1);
+                    } else if (type === vscode.FileType.File) {
+                        const ext = path.extname(name);
                         if (priorityExtensions.includes(ext)) {
-                            const stats = fs.statSync(fullPath);
+                            const stats = await vscode.workspace.fs.stat(vscode.Uri.file(fullPath));
                             if (stats.size <= this.MAX_FILE_SIZE) {
                                 files.push(fullPath);
                             }
@@ -143,16 +146,18 @@ export class WorkspaceAnalyzer {
             }
         };
 
-        traverse(rootPath, 0);
+        await traverse(rootPath, 0);
         return files;
     }
 
     /**
-     * Read a file and create a ContextFile
+     * Read a file and create a ContextFile using async VS Code workspace API to avoid blocking
      */
     private static async readFile(filePath: string, rootPath: string): Promise<ContextFile | null> {
         try {
-            const content = fs.readFileSync(filePath, 'utf-8');
+            const fileUri = vscode.Uri.file(filePath);
+            const uint8Array = await vscode.workspace.fs.readFile(fileUri);
+            const content = new TextDecoder('utf-8').decode(uint8Array);
             const relativePath = path.relative(rootPath, filePath);
             const language = this.detectLanguage(filePath);
             const lines = content.split('\n').length;

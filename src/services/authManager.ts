@@ -8,31 +8,43 @@ export class AuthManager {
     private _userRole: string | undefined;
 
     constructor(private context: vscode.ExtensionContext) {
-        this.checkSession();
+        if (auth) {
+            this.checkSession();
+        } else {
+            console.warn('AuthManager: Firebase Auth is not initialized.');
+            this.updateContext(false, undefined);
+        }
+    }
+
+    private updateContext(isAuthenticated: boolean, role: string | undefined) {
+        this._isAuthenticated = isAuthenticated;
+        this._userRole = role;
+        vscode.commands.executeCommand('setContext', 'aiCodeGenerator.isAuthenticated', isAuthenticated);
+        vscode.commands.executeCommand('setContext', 'aiCodeGenerator.userRole', role);
     }
 
     /**
      * Check if a valid session exists
      */
     async checkSession(): Promise<boolean> {
+        if (!auth) return false;
         return new Promise((resolve) => {
-            auth.onAuthStateChanged(async (user: any) => {
+            auth!.onAuthStateChanged(async (user: any) => {
                 if (user) {
                     this._isAuthenticated = true;
                     this._userEmail = user.email || undefined;
 
-                    const profile = await FirebaseService.getUserProfile(user.uid);
-                    this._userRole = profile?.role || 'user';
+                    try {
+                        const profile = await FirebaseService.getUserProfile(user.uid);
+                        this._userRole = profile?.role || 'user';
+                    } catch (e) {
+                        this._userRole = 'user';
+                    }
 
-                    vscode.commands.executeCommand('setContext', 'aiCodeGenerator.isAuthenticated', true);
-                    vscode.commands.executeCommand('setContext', 'aiCodeGenerator.userRole', this._userRole);
+                    this.updateContext(true, this._userRole);
                     resolve(true);
                 } else {
-                    this._isAuthenticated = false;
-                    this._userEmail = undefined;
-                    this._userRole = undefined;
-                    vscode.commands.executeCommand('setContext', 'aiCodeGenerator.isAuthenticated', false);
-                    vscode.commands.executeCommand('setContext', 'aiCodeGenerator.userRole', undefined);
+                    this.updateContext(false, undefined);
                     resolve(false);
                 }
             });
@@ -99,6 +111,6 @@ export class AuthManager {
     }
 
     get userId(): string | undefined {
-        return auth.currentUser?.uid;
+        return auth?.currentUser?.uid;
     }
 }

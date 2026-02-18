@@ -22,6 +22,8 @@ export interface ProjectStructure {
     projectName?: string;
     /** Optional description of what was generated */
     description?: string;
+    /** Optional suggested commands to run (e.g., ["npm install", "npm start"]) */
+    suggestedCommands?: string[];
 }
 
 /**

@@ -38,9 +38,10 @@ export class DeploymentService {
                 await execAsync('npm install -g vercel');
             }
 
-            // Deploy using Vercel CLI
-            const { stdout } = await execAsync(`vercel --token ${token} --yes`, {
-                cwd: projectPath
+            // Deploy using Vercel CLI - pass token via environment variable
+            const { stdout } = await execAsync('vercel --yes', {
+                cwd: projectPath,
+                env: { ...process.env, VERCEL_TOKEN: token }
             });
 
             // Extract deployment URL from output
@@ -233,7 +234,7 @@ export class DeploymentService {
             };
         }
 
-        await vscode.window.withProgress({
+        return await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: `Deploying to ${platform}...`,
             cancellable: false
@@ -253,21 +254,5 @@ export class DeploymentService {
                     };
             }
         });
-
-        // Re-execute the deployment outside of the progress handler
-        switch (platform) {
-            case 'Vercel':
-                return await this.deployToVercel(projectPath);
-            case 'Netlify':
-                return await this.deployToNetlify(projectPath);
-            case 'Firebase':
-                return await this.deployToFirebase(projectPath);
-            default:
-                return {
-                    success: false,
-                    error: 'Unknown platform',
-                    platform
-                };
-        }
     }
 }

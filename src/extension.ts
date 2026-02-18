@@ -16,6 +16,8 @@ import { generateTerminalCommandCommand as genTermCmd } from './commands/termina
 import { focusChatInputCommand, newChatCommand, acceptSuggestionCommand, rejectSuggestionCommand, acceptAllSuggestionsCommand, rejectAllSuggestionsCommand } from './commands/chatFocus';
 import { AICodeActionProvider, applyQuickFixCommand, refactorCodeCommand } from './providers/codeActionProvider';
 import { DiffViewProvider, diffViewProvider } from './features/diff/diffViewProvider';
+import { IndexingService } from './services/indexingService';
+import { UsageTracker } from './services/usageTracker';
 
 /**
  * Called when the extension is activated
@@ -26,11 +28,12 @@ export function activate(context: vscode.ExtensionContext) {
     // Initialize Services
     const historyManager = new HistoryManager(context);
     const authManager = new AuthManager(context);
+    const usageTracker = new UsageTracker(context);
 
     // Views
     const treeProvider = registerHistoryCommands(context, historyManager);
 
-    const chatProvider = new ChatViewProvider(context.extensionUri, historyManager);
+    const chatProvider = new ChatViewProvider(context.extensionUri, historyManager, usageTracker);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatProvider)
     );
@@ -94,6 +97,16 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('ai-code-generator.rejectSuggestion', rejectSuggestionCommand),
         vscode.commands.registerCommand('ai-code-generator.acceptAllSuggestions', acceptAllSuggestionsCommand),
         vscode.commands.registerCommand('ai-code-generator.rejectAllSuggestions', rejectAllSuggestionsCommand),
+        // Indexing command
+        vscode.commands.registerCommand('ai-code-generator.indexWorkspace', async () => {
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Building semantic code index...',
+                cancellable: false
+            }, (progress) => {
+                return IndexingService.indexWorkspace(progress);
+            });
+        }),
         // Code action commands
         vscode.commands.registerCommand('ai-code-generator.applyQuickFix', applyQuickFixCommand),
         vscode.commands.registerCommand('ai-code-generator.refactorCode', refactorCodeCommand)

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ProjectStructure } from '../types';
 import { FirebaseService, FirebaseHistoryItem } from './firebaseService';
 import { auth } from './firebaseService';
+import { nanoid } from 'nanoid';
 
 export interface HistoryItem {
     id: string;
@@ -20,25 +21,27 @@ export class HistoryManager {
 
     constructor(private context: vscode.ExtensionContext) {
         // Initial sync if already logged in
-        if (auth.currentUser) {
+        if (auth && auth.currentUser) {
             this.syncFromFirebase();
         }
 
         // Listen for auth changes to sync
-        auth.onAuthStateChanged((user: any) => {
-            if (user) {
-                this.syncFromFirebase();
-            }
-        });
+        if (auth) {
+            auth.onAuthStateChanged((user: any) => {
+                if (user) {
+                    this.syncFromFirebase();
+                }
+            });
+        }
     }
 
     /**
      * Sync history from Firebase to local storage
      */
     async syncFromFirebase(): Promise<void> {
-        if (!auth.currentUser) return;
+        if (!auth || !auth.currentUser) return;
         try {
-            const firebaseHistory = await FirebaseService.getHistory(auth.currentUser.uid);
+            const firebaseHistory = await FirebaseService.getHistory(auth!.currentUser!.uid);
             if (firebaseHistory && firebaseHistory.length > 0) {
                 const localHistory = this.getHistory();
 
@@ -48,7 +51,7 @@ export class HistoryManager {
                     if (!merged.some(m => m.timestamp === item.timestamp)) {
                         merged.push({
                             ...item,
-                            id: crypto.randomUUID(),
+                            id: nanoid(),
                             targetFolder: '', // Folder info isn't in Firebase yet
                             fileCount: 0      // File count info isn't in Firebase yet
                         });
@@ -71,7 +74,7 @@ export class HistoryManager {
 
         const newEntry: HistoryItem = {
             ...item,
-            id: crypto.randomUUID(),
+            id: nanoid(),
             timestamp: Date.now()
         };
 
@@ -85,7 +88,7 @@ export class HistoryManager {
         await this.context.globalState.update(HistoryManager.STORAGE_KEY, history);
 
         // Sync with Firebase if logged in
-        if (auth.currentUser) {
+        if (auth && auth.currentUser) {
             await this.syncToFirebase(history);
         }
     }
@@ -102,7 +105,7 @@ export class HistoryManager {
      */
     async clearHistory(): Promise<void> {
         await this.context.globalState.update(HistoryManager.STORAGE_KEY, []);
-        if (auth.currentUser) {
+        if (auth && auth.currentUser) {
             await FirebaseService.saveHistory(auth.currentUser.uid, []);
         }
     }
@@ -115,7 +118,7 @@ export class HistoryManager {
         const newHistory = history.filter(item => item.id !== id);
         await this.context.globalState.update(HistoryManager.STORAGE_KEY, newHistory);
 
-        if (auth.currentUser) {
+        if (auth && auth.currentUser) {
             await this.syncToFirebase(newHistory);
         }
     }
@@ -124,7 +127,7 @@ export class HistoryManager {
      * Sync local history to Firebase
      */
     private async syncToFirebase(history: HistoryItem[]): Promise<void> {
-        if (!auth.currentUser) return;
+        if (!auth || !auth.currentUser) return;
 
         const firebaseHistory: FirebaseHistoryItem[] = history.map(item => ({
             prompt: item.prompt,
@@ -134,6 +137,6 @@ export class HistoryManager {
             projectName: item.projectName
         }));
 
-        await FirebaseService.saveHistory(auth.currentUser.uid, firebaseHistory);
+        await FirebaseService.saveHistory(auth!.currentUser!.uid, firebaseHistory);
     }
 }

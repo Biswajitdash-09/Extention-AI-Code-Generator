@@ -21,6 +21,8 @@ export interface ProviderConfig {
 export interface ChatMessage {
     role: 'system' | 'user' | 'assistant';
     content: string;
+    /** Optional base64 encoded image data */
+    image?: string;
 }
 
 /**
@@ -64,7 +66,7 @@ export const PROVIDER_INFO: Record<ProviderType, ProviderInfo> = {
         description: 'Gemini 1.5/2.0 - Free tier available',
         requiresApiKey: true,
         freeAvailable: true,
-        models: ['gemini-2.0-flash-exp', 'gemini-1.5-flash', 'gemini-1.5-pro']
+        models: ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro']
     },
     groq: {
         type: 'groq',

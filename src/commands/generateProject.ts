@@ -125,37 +125,52 @@ export async function applyProjectStructure(
     progress?: vscode.Progress<{ message?: string; increment?: number }>
 ): Promise<void> {
     try {
-        if (progress) progress.report({ message: 'Creating files...', increment: 50 });
-        else {
-            vscode.window.withProgress({
+        let createResult;
+        
+        if (progress) {
+            progress.report({ message: 'Creating files...', increment: 50 });
+            createResult = await FileSystemUtils.createProjectStructure(
+                workspaceRoot,
+                projectStructure,
+                progress
+            );
+        } else {
+            createResult = await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
                 title: "AI Code Generator",
                 cancellable: false
             }, async (p) => {
                 p.report({ message: 'Creating files...' });
-                return await FileSystemUtils.createProjectStructure(workspaceRoot, projectStructure, p);
+                return await FileSystemUtils.createProjectStructure(
+                    workspaceRoot,
+                    projectStructure,
+                    p
+                );
             });
         }
 
-        const createResult = await FileSystemUtils.createProjectStructure(
-            workspaceRoot,
-            projectStructure,
-            progress
-        );
-
         if (!createResult.success) {
-            vscode.window.showErrorMessage(`File creation failed: ${createResult.error}`);
+            const errorMsg = `File creation failed: ${createResult.error}`;
+            vscode.window.showErrorMessage(errorMsg);
+            console.error(errorMsg);
             return;
         }
 
+        // Small delay to allow VS Code to detect new files
+        await new Promise(resolve => setTimeout(resolve, 500));
+
         // Open main file in editor
-        await FileSystemUtils.openFirstFile(workspaceRoot, projectStructure);
+        try {
+            await FileSystemUtils.openFirstFile(workspaceRoot, projectStructure);
+        } catch (e) {
+            console.warn('Could not open first file automatically:', e);
+        }
 
         // Show success message
         const description = projectStructure.description || 'Project generated';
-        vscode.window.showInformationMessage(
-            `✅ ${description} (${createResult.filesCreated} files created)`
-        );
+        const successMsg = `✅ ${description} (${createResult.filesCreated} files created)`;
+        vscode.window.showInformationMessage(successMsg);
+        console.log(successMsg);
 
         // Add to history
         if (historyManager) {
@@ -170,7 +185,9 @@ export async function applyProjectStructure(
             historyTreeProvider?.refresh();
         }
     } catch (error) {
-        vscode.window.showErrorMessage(`Failed to apply project: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        const errMsg = `Failed to apply project: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        vscode.window.showErrorMessage(errMsg);
+        console.error(errMsg);
     }
 }
 
