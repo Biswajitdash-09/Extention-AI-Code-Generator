@@ -6,6 +6,7 @@ export class AuthManager {
     private _isAuthenticated: boolean = false;
     private _userEmail: string | undefined;
     private _userRole: string | undefined;
+    private _displayName: string | undefined;
 
     constructor(private context: vscode.ExtensionContext) {
         if (auth) {
@@ -37,6 +38,7 @@ export class AuthManager {
                     try {
                         const profile = await FirebaseService.getUserProfile(user.uid);
                         this._userRole = profile?.role || 'user';
+                        this._displayName = profile?.displayName || undefined;
                     } catch (e) {
                         this._userRole = 'user';
                     }
@@ -110,7 +112,64 @@ export class AuthManager {
         return this._userRole;
     }
 
+    get displayName(): string | undefined {
+        return this._displayName;
+    }
+
     get userId(): string | undefined {
         return auth?.currentUser?.uid;
+    }
+
+    /**
+     * Get full profile data for the webview
+     */
+    async getProfileData(): Promise<any> {
+        const uid = auth?.currentUser?.uid;
+        let profile: any = {};
+        if (uid) {
+            try {
+                profile = await FirebaseService.getUserProfile(uid) || {};
+            } catch (e) {
+                console.error('Failed to fetch profile:', e);
+            }
+        }
+        return {
+            email: this._userEmail || '',
+            displayName: profile.displayName || this._displayName || '',
+            bio: profile.bio || '',
+            role: profile.role || this._userRole || 'user',
+            createdAt: profile.createdAt?.toDate?.()?.toISOString?.() || ''
+        };
+    }
+
+    /**
+     * Update user profile in Firestore
+     */
+    async updateProfile(data: { displayName?: string; bio?: string }): Promise<void> {
+        const uid = auth?.currentUser?.uid;
+        if (!uid) throw new Error('Not signed in');
+        await FirebaseService.updateUserProfile(uid, data);
+        if (data.displayName !== undefined) this._displayName = data.displayName;
+    }
+
+    /**
+     * Change the user's password
+     */
+    async changePassword(newPassword: string): Promise<void> {
+        await FirebaseService.changePassword(newPassword);
+    }
+
+    /**
+     * Delete the user's account
+     */
+    async deleteAccount(): Promise<void> {
+        const uid = auth?.currentUser?.uid;
+        if (!uid) throw new Error('Not signed in');
+        await FirebaseService.deleteUserAccount(uid);
+        this._isAuthenticated = false;
+        this._userEmail = undefined;
+        this._displayName = undefined;
+        this._userRole = undefined;
+        vscode.commands.executeCommand('setContext', 'aiCodeGenerator.isAuthenticated', false);
     }
 }

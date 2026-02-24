@@ -11,6 +11,7 @@ import { ChatMessage } from '../types';
 import { IndexingService } from '../services/indexingService';
 import { TemplateService } from '../services/templateService';
 import { UsageTracker } from '../services/usageTracker';
+import { AuthManager } from '../services/authManager';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'aiCodeGenerator.chatView';
@@ -24,7 +25,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly _extensionUri: vscode.Uri,
     private readonly _historyManager: HistoryManager,
-    private readonly _usageTracker?: UsageTracker
+    private readonly _usageTracker?: UsageTracker,
+    private readonly _authManager?: AuthManager
   ) { }
 
   public resolveWebviewView(
@@ -43,6 +45,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(async (data) => {
       switch (data.type) {
+        case 'login': {
+          await this.handleLogin(data.email, data.password);
+          break;
+        }
+        case 'signup': {
+          await this.handleSignup(data.email, data.password);
+          break;
+        }
+        case 'checkAuth': {
+          this.sendAuthState();
+          break;
+        }
         case 'sendMessage': {
           await this.handleMessage(data.value, data.image, data.mode);
           break;
@@ -95,12 +109,71 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           await this.handleFixLastError();
           break;
         }
+        case 'getProfile': {
+          await this.handleGetProfile();
+          break;
+        }
+        case 'updateProfile': {
+          await this.handleUpdateProfile(data.displayName, data.bio);
+          break;
+        }
+        case 'changePassword': {
+          await this.handleChangePassword(data.newPassword);
+          break;
+        }
+        case 'deleteAccount': {
+          await this.handleDeleteAccount();
+          break;
+        }
+        case 'logout': {
+          await this.handleLogout();
+          break;
+        }
       }
     });
 
-    // Initial history and templates load
+    // Send initial auth state, then load history and templates
+    this.sendAuthState();
     this.updateHistory();
     this.sendTemplates();
+  }
+
+  private sendAuthState() {
+    if (this._view) {
+      const isAuthenticated = this._authManager?.isAuthenticated ?? false;
+      const email = this._authManager?.userEmail;
+      this._view.webview.postMessage({ type: 'authState', isAuthenticated, email });
+    }
+  }
+
+  private async handleLogin(email: string, password: string) {
+    if (!this._authManager) {
+      this._view?.webview.postMessage({ type: 'authError', message: 'Authentication service not available. Firebase may not be initialized.' });
+      return;
+    }
+    try {
+      await this._authManager.login(email, password);
+      this.sendAuthState();
+      vscode.window.showInformationMessage(`Successfully logged in as ${email}`);
+    } catch (error: any) {
+      const msg = error?.message || error?.code || 'Login failed. Please check your credentials.';
+      this._view?.webview.postMessage({ type: 'authError', message: msg });
+    }
+  }
+
+  private async handleSignup(email: string, password: string) {
+    if (!this._authManager) {
+      this._view?.webview.postMessage({ type: 'authError', message: 'Authentication service not available. Firebase may not be initialized.' });
+      return;
+    }
+    try {
+      await this._authManager.signup(email, password);
+      this.sendAuthState();
+      vscode.window.showInformationMessage(`Account created! Logged in as ${email}`);
+    } catch (error: any) {
+      const msg = error?.message || error?.code || 'Signup failed. Please try again.';
+      this._view?.webview.postMessage({ type: 'authError', message: msg });
+    }
   }
 
   private sendTemplates() {
@@ -117,6 +190,59 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private async handleGetProfile() {
+    if (!this._authManager) return;
+    try {
+      const profile = await this._authManager.getProfileData();
+      this._view?.webview.postMessage({ type: 'profileData', value: profile });
+    } catch (error: any) {
+      this._view?.webview.postMessage({ type: 'profileError', message: error?.message || 'Failed to load profile' });
+    }
+  }
+
+  private async handleUpdateProfile(displayName: string, bio: string) {
+    if (!this._authManager) return;
+    try {
+      await this._authManager.updateProfile({ displayName, bio });
+      const profile = await this._authManager.getProfileData();
+      this._view?.webview.postMessage({ type: 'profileData', value: profile });
+      this._view?.webview.postMessage({ type: 'profileSuccess', message: 'Profile updated successfully!' });
+    } catch (error: any) {
+      this._view?.webview.postMessage({ type: 'profileError', message: error?.message || 'Failed to update profile' });
+    }
+  }
+
+  private async handleChangePassword(newPassword: string) {
+    if (!this._authManager) return;
+    try {
+      await this._authManager.changePassword(newPassword);
+      this._view?.webview.postMessage({ type: 'profileSuccess', message: 'Password changed successfully!' });
+    } catch (error: any) {
+      this._view?.webview.postMessage({ type: 'profileError', message: error?.message || 'Failed to change password' });
+    }
+  }
+
+  private async handleDeleteAccount() {
+    if (!this._authManager) return;
+    try {
+      await this._authManager.deleteAccount();
+      this.sendAuthState();
+      vscode.window.showInformationMessage('Your account has been deleted.');
+    } catch (error: any) {
+      this._view?.webview.postMessage({ type: 'profileError', message: error?.message || 'Failed to delete account' });
+    }
+  }
+
+  private async handleLogout() {
+    if (!this._authManager) return;
+    try {
+      await this._authManager.logout();
+      this.sendAuthState();
+    } catch (error: any) {
+      this._view?.webview.postMessage({ type: 'profileError', message: error?.message || 'Failed to logout' });
+    }
+  }
+
   private async handleApplyProject() {
     if (!this._currentProjectStructure || !this._currentMetadata) {
       vscode.window.showErrorMessage('No project to apply');
@@ -130,6 +256,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     await applyProjectStructure(workspaceRoot, this._currentProjectStructure, this._currentMetadata);
+
+    // Save to history
+    try {
+      await this._historyManager.addEntry({
+        prompt: this._currentMetadata.prompt,
+        provider: this._currentMetadata.provider,
+        model: this._currentMetadata.model,
+        targetFolder: workspaceRoot,
+        projectName: this._currentProjectStructure.projectName || 'Unnamed Project',
+        fileCount: this._currentProjectStructure.files?.length || 0
+      });
+      this.updateHistory();
+    } catch (e) {
+      console.error('Failed to save history entry:', e);
+    }
 
     // Clear state after application
     this._currentProjectStructure = undefined;
@@ -1056,9 +1197,315 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         .template-icon { font-size: 20px; }
         .template-name { font-size: 11px; font-weight: 700; color: #fff; }
         .template-desc { font-size: 9px; color: #888; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+        /* Auth Overlay */
+        .auth-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: var(--vscode-sideBar-background);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .auth-overlay.hidden { display: none; }
+        .auth-logo {
+            font-size: 36px;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #007acc 0%, #00b4d8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 800;
+        }
+        .auth-subtitle {
+            color: var(--text-secondary);
+            font-size: 12px;
+            margin-bottom: 28px;
+        }
+        .auth-form {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 100%;
+            max-width: 280px;
+        }
+        .auth-input {
+            padding: 10px 12px;
+            border: 1px solid var(--glass-border);
+            background: var(--input-bg);
+            color: var(--vscode-editor-foreground);
+            border-radius: 8px;
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .auth-input:focus { border-color: var(--accent); }
+        .auth-submit {
+            padding: 10px;
+            background: linear-gradient(135deg, #007acc 0%, #005a9e 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: opacity 0.2s;
+        }
+        .auth-submit:hover { opacity: 0.9; }
+        .auth-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+        .auth-toggle {
+            text-align: center;
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 8px;
+        }
+        .auth-toggle span {
+            color: var(--accent);
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        .auth-toggle span:hover { color: #29b6f6; }
+        .auth-error {
+            color: #f44336;
+            font-size: 11px;
+            text-align: center;
+            min-height: 16px;
+        }
+
+        /* Profile Avatar & Dropdown */
+        .profile-avatar {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #007acc 0%, #00b4d8 100%);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: border-color 0.2s, transform 0.15s;
+            text-transform: uppercase;
+            flex-shrink: 0;
+        }
+        .profile-avatar:hover {
+            border-color: var(--accent);
+            transform: scale(1.1);
+        }
+        .profile-dropdown {
+            position: absolute;
+            top: 44px;
+            right: 8px;
+            width: 280px;
+            background: var(--vscode-sideBar-background);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            z-index: 200;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .profile-dropdown.visible { display: flex; }
+        .profile-dropdown-header {
+            padding: 16px;
+            background: linear-gradient(135deg, rgba(0,122,204,0.15) 0%, rgba(0,180,216,0.08) 100%);
+            border-bottom: 1px solid var(--glass-border);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .profile-dropdown-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #007acc 0%, #00b4d8 100%);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 700;
+            text-transform: uppercase;
+            flex-shrink: 0;
+        }
+        .profile-header-info {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .profile-header-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: #fff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .profile-header-email {
+            font-size: 11px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .profile-role-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            background: rgba(0,122,204,0.2);
+            color: #29b6f6;
+            margin-top: 4px;
+            width: fit-content;
+        }
+        .profile-dropdown-body {
+            padding: 12px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .profile-field label {
+            display: block;
+            font-size: 10px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .profile-field input {
+            width: 100%;
+            padding: 6px 10px;
+            border: 1px solid var(--glass-border);
+            background: var(--input-bg);
+            color: var(--vscode-editor-foreground);
+            border-radius: 6px;
+            font-size: 12px;
+            outline: none;
+            box-sizing: border-box;
+        }
+        .profile-field input:focus { border-color: var(--accent); }
+        .profile-status {
+            font-size: 11px;
+            text-align: center;
+            min-height: 16px;
+            padding: 0 4px;
+        }
+        .profile-dropdown-actions {
+            padding: 8px 16px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            border-top: 1px solid var(--glass-border);
+        }
+        .profile-btn {
+            padding: 7px 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            transition: opacity 0.2s;
+        }
+        .profile-btn:hover { opacity: 0.85; }
+        .profile-btn-primary {
+            background: linear-gradient(135deg, #007acc 0%, #005a9e 100%);
+            color: #fff;
+        }
+        .profile-btn-secondary {
+            background: rgba(255,255,255,0.08);
+            color: #ccc;
+            border: 1px solid var(--glass-border);
+        }
+        .profile-btn-danger {
+            background: rgba(229,20,0,0.15);
+            color: #f44336;
+            border: 1px solid rgba(244,67,54,0.3);
+        }
+        .profile-btn-logout {
+            background: rgba(255,255,255,0.05);
+            color: #f44336;
+        }
+
+        /* Modals */
+        .profile-modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 300;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .profile-modal-overlay.visible { display: flex; }
+        .profile-modal {
+            background: var(--vscode-sideBar-background);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 24px;
+            width: 100%;
+            max-width: 280px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .profile-modal h3 {
+            margin: 0;
+            font-size: 15px;
+            color: #fff;
+        }
+        .profile-modal p {
+            margin: 0;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .profile-modal input {
+            padding: 8px 10px;
+            border: 1px solid var(--glass-border);
+            background: var(--input-bg);
+            color: var(--vscode-editor-foreground);
+            border-radius: 6px;
+            font-size: 12px;
+            outline: none;
+        }
+        .profile-modal input:focus { border-color: var(--accent); }
+        .profile-modal-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+        .profile-modal-error {
+            color: #f44336;
+            font-size: 11px;
+            min-height: 14px;
+        }
       </style>
     </head>
     <body>
+      <!-- Auth Overlay -->
+      <div class="auth-overlay" id="authOverlay">
+        <div class="auth-logo">⚡ CodeForge AI</div>
+        <div class="auth-subtitle" id="authTitle">Sign in to get started</div>
+        <div class="auth-form">
+          <input class="auth-input" type="email" id="authEmail" placeholder="Email" />
+          <input class="auth-input" type="password" id="authPassword" placeholder="Password" />
+          <div class="auth-error" id="authError"></div>
+          <button class="auth-submit" id="authSubmitBtn">Sign In</button>
+          <div class="auth-toggle" id="authToggle">
+            Don't have an account? <span id="authToggleLink">Sign Up</span>
+          </div>
+        </div>
+      </div>
+
       <div class="header-tabs">
         <div class="tab active" data-tab="Chat">Chat</div>
         <div class="tab" data-tab="Build">Build</div>
@@ -1066,6 +1513,62 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         <div class="tab" data-tab="History">History</div>
         <div class="header-actions">
            <button class="new-chat-btn" id="newChatBtn">+ New</button>
+           <div class="profile-avatar" id="profileAvatarBtn" style="display: none;">?</div>
+        </div>
+      </div>
+
+      <!-- Profile Dropdown -->
+      <div class="profile-dropdown" id="profileDropdown">
+        <div class="profile-dropdown-header">
+          <div class="profile-dropdown-avatar" id="profileDropdownAvatar">?</div>
+          <div class="profile-header-info">
+            <div class="profile-header-name" id="profileHeaderName">User</div>
+            <div class="profile-header-email" id="profileHeaderEmail">email@example.com</div>
+            <div class="profile-role-badge" id="profileRoleBadge">user</div>
+          </div>
+        </div>
+        <div class="profile-dropdown-body">
+          <div class="profile-field">
+            <label>Display Name</label>
+            <input type="text" id="profileDisplayName" placeholder="Your name" />
+          </div>
+          <div class="profile-field">
+            <label>Bio</label>
+            <input type="text" id="profileBio" placeholder="Tell us about yourself" />
+          </div>
+          <div class="profile-status" id="profileStatus"></div>
+        </div>
+        <div class="profile-dropdown-actions">
+          <button class="profile-btn profile-btn-primary" id="profileSaveBtn">Save Changes</button>
+          <button class="profile-btn profile-btn-secondary" id="profileChangePwBtn">Change Password</button>
+          <button class="profile-btn profile-btn-danger" id="profileDeleteBtn">Delete Account</button>
+          <button class="profile-btn profile-btn-logout" id="profileLogoutBtn">Sign Out</button>
+        </div>
+      </div>
+
+      <!-- Change Password Modal -->
+      <div class="profile-modal-overlay" id="passwordModal">
+        <div class="profile-modal">
+          <h3>Change Password</h3>
+          <input type="password" id="newPasswordInput" placeholder="New password (min 6 chars)" />
+          <input type="password" id="confirmPasswordInput" placeholder="Confirm new password" />
+          <div class="profile-modal-error" id="passwordModalError"></div>
+          <div class="profile-modal-actions">
+            <button class="profile-btn profile-btn-secondary" id="passwordCancelBtn">Cancel</button>
+            <button class="profile-btn profile-btn-primary" id="passwordSubmitBtn">Update</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Delete Account Modal -->
+      <div class="profile-modal-overlay" id="deleteModal">
+        <div class="profile-modal">
+          <h3>Delete Account</h3>
+          <p>This action is irreversible. All your data will be permanently deleted. Are you sure?</p>
+          <div class="profile-modal-actions">
+            <button class="profile-btn profile-btn-secondary" id="deleteCancelBtn">Cancel</button>
+            <button class="profile-btn profile-btn-danger" id="deleteConfirmBtn">Delete Forever</button>
+          </div>
         </div>
       </div>
 
@@ -1196,6 +1699,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const buildView = document.getElementById('buildView');
         const historyView = document.getElementById('historyView');
         const historyList = document.getElementById('historyList');
+        const fullHistoryList = document.getElementById('fullHistoryList');
+        const buildFileList = document.getElementById('buildFileList');
         const newChatBtn = document.getElementById('newChatBtn');
         const terminalView = document.getElementById('terminalView');
         const commandList = document.getElementById('commandList');
@@ -1212,6 +1717,172 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const contextPicker = document.getElementById('contextPicker');
         const contextSearch = document.getElementById('contextSearch');
         const contextResults = document.getElementById('contextResults');
+
+        // Auth elements
+        const authOverlay = document.getElementById('authOverlay');
+        const authEmail = document.getElementById('authEmail');
+        const authPassword = document.getElementById('authPassword');
+        const authSubmitBtn = document.getElementById('authSubmitBtn');
+        const authError = document.getElementById('authError');
+        const authTitle = document.getElementById('authTitle');
+        const authToggle = document.getElementById('authToggle');
+        let authIsLogin = true;
+
+        function toggleAuthMode() {
+          authIsLogin = !authIsLogin;
+          authTitle.textContent = authIsLogin ? 'Sign in to get started' : 'Create your account';
+          authSubmitBtn.textContent = authIsLogin ? 'Sign In' : 'Sign Up';
+          authToggle.innerHTML = authIsLogin
+            ? "Don't have an account? <span id='authToggleLink'>Sign Up</span>"
+            : "Already have an account? <span id='authToggleLink'>Sign In</span>";
+          // Re-bind click on the new toggle link
+          document.getElementById('authToggleLink').addEventListener('click', toggleAuthMode);
+          authError.textContent = '';
+        }
+
+        function handleAuthSubmit() {
+          const email = authEmail.value.trim();
+          const password = authPassword.value;
+          if (!email || !password) {
+            authError.textContent = 'Please enter email and password.';
+            return;
+          }
+          if (password.length < 6) {
+            authError.textContent = 'Password must be at least 6 characters.';
+            return;
+          }
+          authError.textContent = '';
+          authError.style.color = '#4ec9b0';
+          authError.textContent = authIsLogin ? 'Signing in...' : 'Creating account...';
+          authSubmitBtn.disabled = true;
+          authSubmitBtn.textContent = authIsLogin ? 'Signing in...' : 'Creating account...';
+          vscode.postMessage({
+            type: authIsLogin ? 'login' : 'signup',
+            email: email,
+            password: password
+          });
+        }
+
+        // Bind auth button clicks via addEventListener
+        authSubmitBtn.addEventListener('click', handleAuthSubmit);
+        document.getElementById('authToggleLink').addEventListener('click', toggleAuthMode);
+
+        // Allow Enter key on password field
+        authPassword.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); handleAuthSubmit(); }
+        });
+
+        // Request auth state on load
+        vscode.postMessage({ type: 'checkAuth' });
+
+        // Profile elements
+        const profileAvatarBtn = document.getElementById('profileAvatarBtn');
+        const profileDropdown = document.getElementById('profileDropdown');
+        const profileDropdownAvatar = document.getElementById('profileDropdownAvatar');
+        const profileHeaderName = document.getElementById('profileHeaderName');
+        const profileHeaderEmail = document.getElementById('profileHeaderEmail');
+        const profileRoleBadge = document.getElementById('profileRoleBadge');
+        const profileDisplayName = document.getElementById('profileDisplayName');
+        const profileBio = document.getElementById('profileBio');
+        const profileStatus = document.getElementById('profileStatus');
+        const profileSaveBtn = document.getElementById('profileSaveBtn');
+        const profileChangePwBtn = document.getElementById('profileChangePwBtn');
+        const profileDeleteBtn = document.getElementById('profileDeleteBtn');
+        const profileLogoutBtn = document.getElementById('profileLogoutBtn');
+        const passwordModal = document.getElementById('passwordModal');
+        const newPasswordInput = document.getElementById('newPasswordInput');
+        const confirmPasswordInput = document.getElementById('confirmPasswordInput');
+        const passwordModalError = document.getElementById('passwordModalError');
+        const passwordCancelBtn = document.getElementById('passwordCancelBtn');
+        const passwordSubmitBtn = document.getElementById('passwordSubmitBtn');
+        const deleteModal = document.getElementById('deleteModal');
+        const deleteCancelBtn = document.getElementById('deleteCancelBtn');
+        const deleteConfirmBtn = document.getElementById('deleteConfirmBtn');
+
+        function getAvatarLetter(email) {
+          return (email || '?').charAt(0).toUpperCase();
+        }
+
+        // Toggle profile dropdown
+        profileAvatarBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          const isVisible = profileDropdown.classList.contains('visible');
+          profileDropdown.classList.toggle('visible');
+          if (!isVisible) {
+            vscode.postMessage({ type: 'getProfile' });
+          }
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+          if (!profileDropdown.contains(e.target) && e.target !== profileAvatarBtn) {
+            profileDropdown.classList.remove('visible');
+          }
+        });
+
+        // Save profile
+        profileSaveBtn.addEventListener('click', function() {
+          profileSaveBtn.textContent = 'Saving...';
+          profileSaveBtn.disabled = true;
+          profileStatus.textContent = '';
+          vscode.postMessage({
+            type: 'updateProfile',
+            displayName: profileDisplayName.value.trim(),
+            bio: profileBio.value.trim()
+          });
+        });
+
+        // Change password modal
+        profileChangePwBtn.addEventListener('click', function() {
+          profileDropdown.classList.remove('visible');
+          passwordModal.classList.add('visible');
+          newPasswordInput.value = '';
+          confirmPasswordInput.value = '';
+          passwordModalError.textContent = '';
+        });
+
+        passwordCancelBtn.addEventListener('click', function() {
+          passwordModal.classList.remove('visible');
+        });
+
+        passwordSubmitBtn.addEventListener('click', function() {
+          const pw = newPasswordInput.value;
+          const cpw = confirmPasswordInput.value;
+          if (!pw || pw.length < 6) {
+            passwordModalError.textContent = 'Password must be at least 6 characters.';
+            return;
+          }
+          if (pw !== cpw) {
+            passwordModalError.textContent = 'Passwords do not match.';
+            return;
+          }
+          passwordModalError.textContent = '';
+          passwordSubmitBtn.textContent = 'Updating...';
+          passwordSubmitBtn.disabled = true;
+          vscode.postMessage({ type: 'changePassword', newPassword: pw });
+        });
+
+        // Delete account modal
+        profileDeleteBtn.addEventListener('click', function() {
+          profileDropdown.classList.remove('visible');
+          deleteModal.classList.add('visible');
+        });
+
+        deleteCancelBtn.addEventListener('click', function() {
+          deleteModal.classList.remove('visible');
+        });
+
+        deleteConfirmBtn.addEventListener('click', function() {
+          deleteConfirmBtn.textContent = 'Deleting...';
+          deleteConfirmBtn.disabled = true;
+          vscode.postMessage({ type: 'deleteAccount' });
+        });
+
+        // Logout
+        profileLogoutBtn.addEventListener('click', function() {
+          profileDropdown.classList.remove('visible');
+          vscode.postMessage({ type: 'logout' });
+        });
 
         let currentImageData = null;
         let currentMode = 'agent';
@@ -1492,6 +2163,64 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 break;
             case 'showFixButton':
                 fixErrorBtn.style.display = data.value ? 'block' : 'none';
+                break;
+            case 'authState':
+                if (data.isAuthenticated) {
+                  authOverlay.classList.add('hidden');
+                  profileAvatarBtn.style.display = 'flex';
+                  if (data.email) {
+                    profileAvatarBtn.textContent = getAvatarLetter(data.email);
+                  }
+                } else {
+                  authOverlay.classList.remove('hidden');
+                  profileAvatarBtn.style.display = 'none';
+                  profileDropdown.classList.remove('visible');
+                  passwordModal.classList.remove('visible');
+                  deleteModal.classList.remove('visible');
+                }
+                break;
+            case 'authError':
+                authError.style.color = '#f44336';
+                authError.textContent = data.message;
+                authSubmitBtn.disabled = false;
+                authSubmitBtn.textContent = authIsLogin ? 'Sign In' : 'Sign Up';
+                break;
+            case 'profileData':
+                {
+                  const p = data.value;
+                  const letter = getAvatarLetter(p.email);
+                  profileAvatarBtn.textContent = letter;
+                  profileDropdownAvatar.textContent = letter;
+                  profileHeaderName.textContent = p.displayName || p.email || 'User';
+                  profileHeaderEmail.textContent = p.email || '';
+                  profileRoleBadge.textContent = p.role || 'user';
+                  profileDisplayName.value = p.displayName || '';
+                  profileBio.value = p.bio || '';
+                  profileSaveBtn.textContent = 'Save Changes';
+                  profileSaveBtn.disabled = false;
+                }
+                break;
+            case 'profileSuccess':
+                profileStatus.style.color = '#4ec9b0';
+                profileStatus.textContent = data.message || 'Success!';
+                profileSaveBtn.textContent = 'Save Changes';
+                profileSaveBtn.disabled = false;
+                passwordModal.classList.remove('visible');
+                passwordSubmitBtn.textContent = 'Update';
+                passwordSubmitBtn.disabled = false;
+                setTimeout(function() { profileStatus.textContent = ''; }, 3000);
+                break;
+            case 'profileError':
+                profileStatus.style.color = '#f44336';
+                profileStatus.textContent = data.message || 'Error';
+                profileSaveBtn.textContent = 'Save Changes';
+                profileSaveBtn.disabled = false;
+                passwordSubmitBtn.textContent = 'Update';
+                passwordSubmitBtn.disabled = false;
+                passwordModalError.textContent = data.message || 'Error';
+                deleteConfirmBtn.textContent = 'Delete Forever';
+                deleteConfirmBtn.disabled = false;
+                setTimeout(function() { profileStatus.textContent = ''; }, 5000);
                 break;
           }
         });

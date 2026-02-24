@@ -1,6 +1,6 @@
 import { app, auth } from '../firebase/config';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, User } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, getDocs, collection, query, orderBy, limit, Timestamp } from 'firebase/firestore';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updatePassword, deleteUser, User } from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDoc, getDocs, deleteDoc, collection, query, orderBy, limit, Timestamp } from 'firebase/firestore';
 
 export { auth };
 export const db = app ? getFirestore(app) : undefined;
@@ -60,19 +60,32 @@ export class FirebaseService {
      * Sign up with email and password
      */
     static async signup(email: string, password: string, role: string = 'user'): Promise<User> {
-        if (!auth || !db) throw new Error('Firebase not initialized');
+        if (!auth) throw new Error('Firebase Auth not initialized');
+        
+        console.log(`[FirebaseService] Attempting signup for ${email}...`);
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
+        console.log(`[FirebaseService] Auth account created for ${user.uid}`);
 
-        // Rate limit write operation
-        await writeRateLimiter.waitForToken();
-
-        // Create user profile in Firestore
-        await setDoc(doc(db, 'users', user.uid), {
-            email,
-            role,
-            createdAt: Timestamp.now()
-        });
+        // Create user profile in Firestore (don't block the main signup if this fails/hangs)
+        if (db) {
+            (async () => {
+                try {
+                    console.log(`[FirebaseService] Creating Firestore profile for ${user.uid}...`);
+                    await writeRateLimiter.waitForToken();
+                    await setDoc(doc(db, 'users', user.uid), {
+                        email,
+                        role,
+                        createdAt: Timestamp.now()
+                    }, { merge: true });
+                    console.log(`[FirebaseService] Firestore profile created.`);
+                } catch (e) {
+                    console.error('[FirebaseService] Failed to create Firestore profile:', e);
+                }
+            })();
+        } else {
+            console.warn('[FirebaseService] Firestore (db) not initialized. Skipping profile creation.');
+        }
 
         return user;
     }
@@ -95,8 +108,10 @@ export class FirebaseService {
      * Sign in with email and password
      */
     static async login(email: string, password: string): Promise<User> {
-        if (!auth) throw new Error('Firebase not initialized');
+        if (!auth) throw new Error('Firebase Auth not initialized');
+        console.log(`[FirebaseService] Attempting login for ${email}...`);
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        console.log(`[FirebaseService] Auth login successful for ${userCredential.user.uid}`);
         
         // Rate limit read operation after login
         await readRateLimiter.waitForToken();
@@ -137,5 +152,44 @@ export class FirebaseService {
         // Simplified for now - can use a subcollection for larger histories
         const snapshot = await getDocs(query(collection(db!, 'users', userId, 'history'), orderBy('timestamp', 'desc'), limit(50)));
         return snapshot.docs.map(doc => doc.data() as FirebaseHistoryItem);
+    }
+
+    /**
+     * Update user profile fields in Firestore
+     */
+    static async updateUserProfile(userId: string, data: { displayName?: string; bio?: string }): Promise<void> {
+        if (!db) throw new Error('Firestore not initialized');
+        await writeRateLimiter.waitForToken();
+        await setDoc(doc(db, 'users', userId), {
+            ...data,
+            updatedAt: Timestamp.now()
+        }, { merge: true });
+    }
+
+    /**
+     * Change the current user's password
+     */
+    static async changePassword(newPassword: string): Promise<void> {
+        if (!auth?.currentUser) throw new Error('No user is signed in');
+        await updatePassword(auth.currentUser, newPassword);
+    }
+
+    /**
+     * Delete user account (Firestore doc + Firebase Auth)
+     */
+    static async deleteUserAccount(userId: string): Promise<void> {
+        // Delete Firestore profile first
+        if (db) {
+            try {
+                await writeRateLimiter.waitForToken();
+                await deleteDoc(doc(db, 'users', userId));
+            } catch (e) {
+                console.error('[FirebaseService] Failed to delete Firestore profile:', e);
+            }
+        }
+        // Delete Firebase Auth account
+        if (auth?.currentUser) {
+            await deleteUser(auth.currentUser);
+        }
     }
 }

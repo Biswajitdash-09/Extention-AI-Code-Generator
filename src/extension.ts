@@ -33,7 +33,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Views
     const treeProvider = registerHistoryCommands(context, historyManager);
 
-    const chatProvider = new ChatViewProvider(context.extensionUri, historyManager, usageTracker);
+    const chatProvider = new ChatViewProvider(context.extensionUri, historyManager, usageTracker, authManager);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatProvider)
     );
